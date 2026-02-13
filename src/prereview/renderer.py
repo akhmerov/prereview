@@ -240,6 +240,14 @@ header {
   font-family: "IBM Plex Mono", "Consolas", monospace;
   font-size: 0.86rem;
 }
+.diff-table td.code {
+  white-space: pre;
+  tab-size: 4;
+}
+.diff-prefix {
+  display: inline-block;
+  width: 1ch;
+}
 .diff-table .num {
   width: 3rem;
   text-align: right;
@@ -393,7 +401,7 @@ header {
                 new_no = _line_number(line.get("new_line"))
                 content = _esc(line.get("content", ""))
                 html_chunks.append(
-                    f"<tr class='{class_name}'><td class='num'>{_esc(old_no)}</td><td class='num'>{_esc(new_no)}</td><td><span>{symbol}</span>{content}</td></tr>"
+                    f"<tr class='{class_name}'><td class='num'>{_esc(old_no)}</td><td class='num'>{_esc(new_no)}</td><td class='code'><span class='diff-prefix'>{symbol}</span>{content}</td></tr>"
                 )
 
                 new_line = line.get("new_line")

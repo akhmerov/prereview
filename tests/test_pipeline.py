@@ -162,6 +162,9 @@ def test_render_function_smoke() -> None:
     )
     assert "Smoke" in html
     assert "Review Overview" in html
+    assert "white-space: pre;" in html
+    assert "class='code'" in html
+    assert "<span class='diff-prefix'>+</span>    message = &quot;hi&quot;" in html
     assert "hello" in html
 
 
