@@ -2,7 +2,7 @@
 name: prereview-pipeline
 description: >-
   Use this skill when the user wants a reliable staged local preview workflow for code review
-  artifacts: prepare reviewer context, author reviewer-relevant anchor annotations, and build
+  artifacts: prepare reviewer context, author reviewer-relevant annotation notes, and build
   static HTML with validation.
 ---
 
@@ -19,15 +19,16 @@ Use this workflow when the task is to generate local rich previews from agent-ge
 ## Required staged flow
 
 1. Run `prereview prepare-context --out review-context.json`.
-2. Read `review-context.json` and author `annotations.json`.
-3. Run `prereview build --context review-context.json --annotations annotations.json --output review.html`.
-4. If build reports validation issues, fix `annotations.json` and re-run build.
+2. Read `review-context.json` and author `annotation-notes.json`.
+3. Run `prereview build --context review-context.json --notes annotation-notes.json --output review.html`.
+4. If build reports validation issues, fix `annotation-notes.json` and re-run build.
 
 Build includes validation and blocks HTML output until issues are resolved.
-There is no `draft-annotations` command; author `annotations.json` directly from `review-context.json`.
+There is no `draft-annotations` command; author notes directly from `review-context.json`.
+Build compiles canonical annotation payloads from notes + deterministic context anchor data.
 Default review target is `review.html` at repository root so the user can open it directly.
 Override the target only when the user explicitly asks for a different path (`--output PATH`).
-Build consumes `review-context.json` and `annotations.json` by default (to minimize clutter) and embeds their data in `review.html`.
+Build consumes `review-context.json` and `annotation-notes.json` by default (to minimize clutter) and embeds their data in `review.html`.
 Use `--keep-inputs` only when the user explicitly asks to retain intermediate JSON files.
 
 ## Input source selection
@@ -45,20 +46,22 @@ If context preparation fails due diff-size safeguards, narrow scope with `--excl
 
 ## Annotation authoring guidance
 
-- Use strict JSON schema version `2`.
+- Use annotation-notes schema version `1`.
 - Set `target_context_id` to the exact `context_id` from `review-context.json`.
-- Write reviewer-facing explanations against `anchor_id` only; do not reference line numbers/hunk coordinates.
+- Write reviewer-facing explanations in top-level `anchors[]` entries keyed by `anchor_id`.
+- Add optional `file_summaries[]` only when file-level context materially helps review.
+- Do not include file path or line coordinates in anchor entries; those are compiled from context.
 - Keep annotations focused on non-computable reviewer value (intent, rationale, risk, compatibility impact).
 - Do not restate automatically available facts such as line numbers, hunk ids, diff stats, or file counts.
 - Add top-level `overview` with 2-4 concise lines for the header:
   scope, primary intent, and reviewer focus/risk.
-- For every anchor include both:
+- For every anchor note include both:
   `what_changed` (concrete behavior/data/API change), and
   `why_changed` (intent, fix, reliability, maintainability, compatibility, etc.).
 - Prefer hunk-level anchor explanations as the default.
 - Keep high-severity notes rare (`warning`/`risk`) and reserve them for genuinely important reviewer attention points.
 
-Read `references/annotation-schema.md` for exact field rules and `assets/annotations.template.json` for a ready template.
+Read `references/annotation-schema.md` for exact field rules and `assets/annotation-notes.template.json` for a ready template.
 
 ## Recovery rules
 

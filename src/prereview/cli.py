@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from prereview.annotations import compile_annotations_from_notes
 from prereview.prepare import (
     build_review_context,
     build_source_spec,
@@ -49,10 +50,7 @@ def _build_validation_failure_message(args: argparse.Namespace, report: dict[str
     issues = report.get("issues", [])
     issue_list = issues if isinstance(issues, list) else []
 
-    lines = [
-        f"Build validation failed: {errors} errors, {warnings} warnings.",
-        "Agent action: update annotations to resolve the validation issues below, then rerun build.",
-    ]
+    lines = [f"Build validation failed: {errors} errors, {warnings} warnings."]
     for issue in issue_list[:20]:
         if not isinstance(issue, dict):
             continue
@@ -63,19 +61,54 @@ def _build_validation_failure_message(args: argparse.Namespace, report: dict[str
     if len(issue_list) > 20:
         lines.append(f"- ... {len(issue_list) - 20} more issues")
 
+    if args.notes is not None:
+        input_flag = "--notes"
+        input_path = args.notes
+        input_label = "Notes file"
+        action_subject = "notes"
+    else:
+        input_flag = "--annotations"
+        input_path = args.annotations
+        input_label = "Annotations file"
+        action_subject = "annotations"
+
+    lines.insert(
+        1,
+        f"Agent action: update {action_subject} to resolve the validation issues below, then rerun build.",
+    )
     lines.append(f"Context file: {args.context}")
-    lines.append(f"Annotations file: {args.annotations}")
+    lines.append(f"{input_label}: {input_path}")
     lines.append("Rerun after fixes:")
     lines.append(
-        f"prereview build --context {args.context} --annotations {args.annotations} --output {args.output}"
+        f"prereview build --context {args.context} {input_flag} {input_path} --output {args.output}"
     )
     return "\n".join(lines)
 
 
 def _build_cmd(args: argparse.Namespace) -> int:
     context = load_json(args.context)
-    annotations = load_json(args.annotations)
+    notes = None
+    compile_issues: list[dict[str, str]] = []
+
+    if args.notes is not None:
+        notes = load_json(args.notes)
+        annotations, compile_issues = compile_annotations_from_notes(context, notes)
+    else:
+        annotations = load_json(args.annotations)
+
+    if args.strict:
+        for issue in compile_issues:
+            if issue.get("level") == "warning":
+                issue["level"] = "error"
+
     report, runtime = evaluate_annotations(context, annotations, strict=args.strict)
+    if compile_issues:
+        combined_issues = [*compile_issues, *report.get("issues", [])]
+        report = {
+            "valid": not any(issue.get("level") == "error" for issue in combined_issues if isinstance(issue, dict)),
+            "issues": combined_issues,
+            "stats": report.get("stats", {}),
+        }
 
     if not report["valid"]:
         raise SystemExit(_build_validation_failure_message(args, report))
@@ -97,6 +130,7 @@ def _build_cmd(args: argparse.Namespace) -> int:
         allow_split_hunks=args.allow_split_hunks,
         embedded_data={
             "context": context,
+            "annotation_notes": notes,
             "annotations": annotations,
             "validation_report": report,
         },
@@ -105,7 +139,8 @@ def _build_cmd(args: argparse.Namespace) -> int:
 
     consumed_paths: list[Path] = []
     if not args.keep_inputs:
-        for candidate in {args.context, args.annotations}:
+        build_input = args.notes if args.notes is not None else args.annotations
+        for candidate in {args.context, build_input}:
             try:
                 candidate.unlink()
             except FileNotFoundError:
@@ -157,10 +192,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     build_parser = subparsers.add_parser(
         "build",
-        help="Build static HTML from context and annotations (includes validation).",
+        help="Build static HTML from context + notes (or legacy annotations) with validation.",
     )
     build_parser.add_argument("--context", type=Path, required=True, help="Path to review-context JSON.")
-    build_parser.add_argument("--annotations", type=Path, required=True, help="Path to annotations JSON.")
+    input_group = build_parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--notes",
+        type=Path,
+        help="Path to annotation notes JSON (recommended; compiled to annotations during build).",
+    )
+    input_group.add_argument(
+        "--annotations",
+        type=Path,
+        help="Path to canonical annotations JSON (legacy input mode).",
+    )
     build_parser.add_argument(
         "--output",
         type=Path,
@@ -171,7 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument(
         "--keep-inputs",
         action="store_true",
-        help="Do not delete context and annotations JSON files after build.",
+        help="Do not delete context and input JSON files after build.",
     )
     build_parser.add_argument(
         "--max-expanded-lines",

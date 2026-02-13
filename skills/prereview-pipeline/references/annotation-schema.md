@@ -1,21 +1,16 @@
-# Annotation Schema v2
+# Annotation Notes Schema v1
 
 Top-level object:
 
-- `version` (string, required): must be `"2"`
+- `version` (string, required): must be `"1"`
 - `target_context_id` (string, required): must match `context_id`
 - `overview` (array[string], optional): 2-4 reviewer-facing header lines
-- `files` (array, required)
-
-`files[]` object:
-
-- `path` (string, required)
-- `summary` (string, optional)
 - `anchors` (array, required)
+- `file_summaries` (array, optional)
 
 `anchors[]` object:
 
-- `anchor_id` (string, required)
+- `anchor_id` (string, required): must exist in `review-context.json`
 - `title` (string, optional)
 - `what_changed` (string, required)
 - `why_changed` (string, required)
@@ -23,9 +18,15 @@ Top-level object:
 - `risk` (string, optional)
 - `severity` (string, optional): one of `info`, `note`, `warning`, `risk`
 
+`file_summaries[]` object:
+
+- `path` (string, required): file path from `review-context.json`
+- `summary` (string, required)
+
 Guidance:
 
-- Prefer anchor/hunk-level explanations for most cases.
+- Prefer anchor-level explanations for most cases.
 - Keep high-severity notes rare.
 - Do not reference line numbers or diff hunk coordinates in explanation text.
 - For each anchor, include both **what changed** and **why**.
+- Do not restate computable diff facts (counts, line numbers, file statuses).

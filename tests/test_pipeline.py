@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from prereview.annotations import compile_annotations_from_notes
 from prereview.cli import main
 from prereview.diff_parser import parse_unified_diff
 import prereview.prepare as prepare_module
@@ -86,6 +87,48 @@ def _annotations_from_context(context: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _notes_from_context(context: dict[str, object]) -> dict[str, object]:
+    notes_anchors: list[dict[str, object]] = []
+    file_summaries: list[dict[str, object]] = []
+    for file_entry in context.get("files", []):
+        if not isinstance(file_entry, dict):
+            continue
+        path = file_entry.get("path")
+        if isinstance(path, str) and path:
+            file_summaries.append(
+                {
+                    "path": path,
+                    "summary": "Focused file update; see anchors for behavior and intent.",
+                }
+            )
+        for anchor in file_entry.get("anchors", []):
+            if not isinstance(anchor, dict):
+                continue
+            anchor_id = anchor.get("anchor_id")
+            if not isinstance(anchor_id, str) or not anchor_id:
+                continue
+            notes_anchors.append(
+                {
+                    "anchor_id": anchor_id,
+                    "what_changed": "Behavior was adjusted in this change focus.",
+                    "why_changed": "To improve correctness and maintainability.",
+                    "title": "Change focus",
+                }
+            )
+
+    return {
+        "version": "1",
+        "target_context_id": context["context_id"],
+        "overview": [
+            "Scope: focused diff under review.",
+            "Primary intent: explain what changed and why.",
+            "Reviewer focus: verify behavioral impact and risk assumptions.",
+        ],
+        "file_summaries": file_summaries,
+        "anchors": notes_anchors,
+    }
+
+
 def test_build_review_context_does_not_store_raw_patch() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
     assert context["version"] == "2"
@@ -115,6 +158,20 @@ def test_authored_annotations_use_anchor_ids() -> None:
     assert "what_changed" in anchor
     assert "why_changed" in anchor
     assert "line_start" not in anchor
+
+
+def test_compile_notes_to_annotations_maps_anchors() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    notes = _notes_from_context(context)
+    annotations, issues = compile_annotations_from_notes(context, notes)
+    assert not any(issue["level"] == "error" for issue in issues)
+    assert annotations["version"] == "2"
+    assert annotations["target_context_id"] == context["context_id"]
+    assert annotations["files"]
+    compiled_anchor = annotations["files"][0]["anchors"][0]
+    assert compiled_anchor["anchor_id"] == context["files"][0]["anchors"][0]["anchor_id"]
+    assert "what_changed" in compiled_anchor
+    assert "why_changed" in compiled_anchor
 
 
 def test_validate_and_materialize_annotations() -> None:
@@ -187,7 +244,7 @@ def test_render_preserves_indentation() -> None:
 def test_cli_context_pipeline(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"
-    annotations_path = tmp_path / "annotations.json"
+    notes_path = tmp_path / "annotation-notes.json"
     html_path = tmp_path / "preview.html"
 
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
@@ -206,8 +263,8 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
     )
 
     context = json.loads(context_path.read_text(encoding="utf-8"))
-    annotations = _annotations_from_context(context)
-    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
+    notes = _notes_from_context(context)
+    notes_path.write_text(json.dumps(notes), encoding="utf-8")
 
     assert (
         main(
@@ -215,8 +272,8 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
                 "build",
                 "--context",
                 str(context_path),
-                "--annotations",
-                str(annotations_path),
+                "--notes",
+                str(notes_path),
                 "--output",
                 str(html_path),
             ]
@@ -229,14 +286,15 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
     assert "src/demo.py" in rendered
     assert "prereview-embedded-data" in rendered
     assert '"validation_report"' in rendered
+    assert '"annotation_notes"' in rendered
     assert not context_path.exists()
-    assert not annotations_path.exists()
+    assert not notes_path.exists()
 
 
 def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"
-    annotations_path = tmp_path / "annotations.json"
+    notes_path = tmp_path / "annotation-notes.json"
     html_path = tmp_path / "review.html"
 
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
@@ -254,16 +312,16 @@ def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
         == 0
     )
     context = json.loads(context_path.read_text(encoding="utf-8"))
-    annotations = _annotations_from_context(context)
-    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
+    notes = _notes_from_context(context)
+    notes_path.write_text(json.dumps(notes), encoding="utf-8")
     assert (
         main(
             [
                 "build",
                 "--context",
                 str(context_path),
-                "--annotations",
-                str(annotations_path),
+                "--notes",
+                str(notes_path),
                 "--output",
                 str(html_path),
                 "--keep-inputs",
@@ -273,7 +331,7 @@ def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
     )
 
     assert context_path.exists()
-    assert annotations_path.exists()
+    assert notes_path.exists()
     rendered = html_path.read_text(encoding="utf-8")
     assert "prereview-embedded-data" in rendered
 
@@ -281,7 +339,7 @@ def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
 def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"
-    annotations_path = tmp_path / "annotations.json"
+    notes_path = tmp_path / "annotation-notes.json"
     html_path = tmp_path / "review.html"
 
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
@@ -300,26 +358,20 @@ def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
     )
 
     context = json.loads(context_path.read_text(encoding="utf-8"))
-    broken_annotations = {
-        "version": "2",
+    broken_notes = {
+        "version": "1",
         "target_context_id": context["context_id"],
         "overview": ["Scope: 1 file."],
-        "files": [
+        "anchors": [
             {
-                "path": "src/demo.py",
-                "summary": "What changed: placeholder. Why: placeholder.",
-                "anchors": [
-                    {
-                        "anchor_id": "missing-anchor-id",
-                        "title": "Bad anchor",
-                        "what_changed": "placeholder",
-                        "why_changed": "placeholder",
-                    }
-                ],
+                "anchor_id": "missing-anchor-id",
+                "title": "Bad anchor",
+                "what_changed": "placeholder",
+                "why_changed": "placeholder",
             }
         ],
     }
-    annotations_path.write_text(json.dumps(broken_annotations), encoding="utf-8")
+    notes_path.write_text(json.dumps(broken_notes), encoding="utf-8")
 
     with pytest.raises(SystemExit) as excinfo:
         main(
@@ -327,8 +379,8 @@ def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
                 "build",
                 "--context",
                 str(context_path),
-                "--annotations",
-                str(annotations_path),
+                "--notes",
+                str(notes_path),
                 "--output",
                 str(html_path),
             ]
@@ -341,14 +393,14 @@ def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
     assert "Rerun after fixes:" in message
     assert "draft-annotations" not in message
     assert context_path.exists()
-    assert annotations_path.exists()
+    assert notes_path.exists()
     assert not html_path.exists()
 
 
 def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"
-    annotations_path = tmp_path / "annotations.json"
+    notes_path = tmp_path / "annotation-notes.json"
 
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -366,16 +418,16 @@ def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pyt
         == 0
     )
     context = json.loads(context_path.read_text(encoding="utf-8"))
-    annotations = _annotations_from_context(context)
-    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
+    notes = _notes_from_context(context)
+    notes_path.write_text(json.dumps(notes), encoding="utf-8")
     assert (
         main(
             [
                 "build",
                 "--context",
                 str(context_path),
-                "--annotations",
-                str(annotations_path),
+                "--notes",
+                str(notes_path),
             ]
         )
         == 0
@@ -388,6 +440,47 @@ def test_cli_draft_annotations_subcommand_is_removed() -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["draft-annotations"])
     assert excinfo.value.code == 2
+
+
+def test_cli_build_supports_legacy_annotations_input(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    context_path = tmp_path / "review-context.json"
+    annotations_path = tmp_path / "annotations.json"
+    html_path = tmp_path / "legacy-preview.html"
+
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "prepare-context",
+                "--patch-file",
+                str(patch_path),
+                "--out",
+                str(context_path),
+            ]
+        )
+        == 0
+    )
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    annotations = _annotations_from_context(context)
+    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "build",
+                "--context",
+                str(context_path),
+                "--annotations",
+                str(annotations_path),
+                "--output",
+                str(html_path),
+            ]
+        )
+        == 0
+    )
+    assert html_path.exists()
 
 
 def test_recompute_runtime_excludes_nested_paths() -> None:
