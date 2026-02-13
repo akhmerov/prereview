@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>{{ title }}</title>
+<style>
+:root {
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --ink: #13202d;
+  --subtle: #4e6172;
+  --border: #d7e0ea;
+  --add-bg: #e9f7ef;
+  --add-ink: #185f39;
+  --del-bg: #fdeeee;
+  --del-ink: #81252e;
+  --comment-bg: #f8f4df;
+  --comment-ink: #5b4a13;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at 15% 15%, #ffffff, var(--bg) 45%, #e9eef4);
+}
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+header {
+  background: linear-gradient(125deg, #fefefe, #e7eef7);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.headline-stats {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--subtle);
+}
+.overview {
+  margin-top: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.65rem 0.85rem;
+}
+.overview h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.overview ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.15rem;
+}
+.files {
+  display: grid;
+  gap: 1.25rem;
+}
+.file {
+  background: var(--panel);
+  border: 1px solid #c4d2e2;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 3px 10px rgba(17, 36, 56, 0.06);
+}
+.file-header {
+  padding: 0.95rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #fcfeff, #f2f7fc);
+}
+.file-dir {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  color: #597087;
+  margin-bottom: 0.2rem;
+}
+.file-name {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.summary {
+  color: #4f3206;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  border: 1px solid #e6d8b8;
+  border-top: 3px solid #be8b33;
+  background: #fff8ea;
+  border-radius: 8px;
+  padding: 0.48rem 0.66rem;
+}
+.status {
+  float: right;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  text-transform: uppercase;
+}
+.hunk {
+  border-top: 1px solid var(--border);
+}
+.hunk > summary {
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  background: #f7faff;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: baseline;
+}
+.hunk-summary-meta {
+  font-size: 0.75rem;
+  color: var(--subtle);
+}
+.hunk-notes {
+  margin: 0.5rem 0.65rem 0.35rem;
+  border-left: 5px solid #5f89bf;
+  background: #edf5ff;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #d2e0f0;
+}
+.hunk-notes div {
+  font-size: 0.9rem;
+  color: #132536;
+}
+.diff-scroll {
+  max-height: min(70vh, 44rem);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.diff-table td {
+  vertical-align: top;
+  padding: 0.15rem 0.45rem;
+  border-top: 1px solid #eef3f8;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.86rem;
+}
+.diff-table td.code {
+  white-space: pre;
+  tab-size: 4;
+}
+.diff-prefix {
+  display: inline-block;
+  width: 1ch;
+}
+.diff-table .num {
+  width: 2.2rem;
+  text-align: right;
+  color: #8ea0b1;
+  font-size: 0.72rem;
+  font-weight: 400;
+  user-select: none;
+}
+.line-add td { background: var(--add-bg); color: var(--add-ink); }
+.line-del td { background: var(--del-bg); color: var(--del-ink); }
+.comment-row td {
+  background: #fffdf4;
+  border-top: none;
+  padding: 0.35rem 0.55rem 0.55rem;
+}
+.comment {
+  border: 1px solid #e6dcaa;
+  background: var(--comment-bg);
+  color: var(--comment-ink);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  margin-top: 0.2rem;
+}
+.comment-meta {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.95;
+  margin-bottom: 0.2rem;
+}
+.comment-severity-warning { color: #8f4b08; }
+.comment-severity-risk { color: #7a1d1d; }
+.comment-severity-note,
+.comment-severity-info { color: #5b4a13; }
+.validation {
+  margin-top: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.6rem 0.8rem;
+}
+.validation ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+@media (max-width: 700px) {
+  main { padding: 0.8rem; }
+  .diff-table td { font-size: 0.8rem; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>{{ title }}</h1>
+<p class='headline-stats'>{{ files_changed }} files · +{{ additions }} · -{{ deletions }} · {{ error_count }} errors, {{ warning_count }} warnings</p>
+{% if overview_lines %}
+<section class='overview'>
+<h2>Review Overview</h2>
+<ul>
+{% for line in overview_lines %}
+<li>{{ line }}</li>
+{% endfor %}
+</ul>
+</section>
+{% endif %}
+{% if issues_render %}
+<section class='validation'>
+<strong>Validation:</strong> {{ error_count }} errors, {{ warning_count }} warnings
+<ul>
+{% for issue in issues_render %}
+<li><code>{{ issue.level }}</code> {{ issue.code }}: {{ issue.message }} <em>{{ issue.location }}</em></li>
+{% endfor %}
+{% if issues_extra_count > 0 %}
+<li>... {{ issues_extra_count }} more issues</li>
+{% endif %}
+</ul></section>
+{% endif %}
+</header>
+<section class='files'>
+{% for file in files_render %}
+<article class='file'>
+<div class='file-header'>
+<span class='status'>{{ file.status }}</span>
+{% if file.file_dir %}<div class='file-dir'>{{ file.file_dir }}/</div>{% endif %}
+<div class='file-name'>{{ file.file_name }}</div>
+{% if file.summary_text %}<div class='summary'>{{ file.summary_text }}</div>{% endif %}
+</div>
+{% if file.is_binary %}
+<div class='summary' style='padding:0.8rem;'>Binary file changed.</div>
+{% else %}
+{% for hunk in file.hunks %}
+<details class='hunk'{% if hunk.is_open %} open{% endif %}>
+<summary><span>{{ hunk.summary_label }}</span><span class='hunk-summary-meta'>+{{ hunk.added_lines }} / -{{ hunk.removed_lines }}</span></summary>
+{% for note in hunk.notes %}
+<section class='hunk-notes'><div>{{ note.explanation }}</div></section>
+{% endfor %}
+<div class='diff-scroll'>
+<table class='diff-table'>
+{% for row in hunk.rows %}
+{% if row.kind == 'line' %}
+<tr class='{{ row.class_name }}'><td class='num'>{{ row.old_no }}</td><td class='num'>{{ row.new_no }}</td><td class='code'><span class='diff-prefix'>{{ row.symbol }}</span>{{ row.content | safe }}</td></tr>
+{% else %}
+<tr class='comment-row'><td colspan='3'><div class='comment'><div class='comment-meta comment-severity-{{ row.severity }}'>{{ row.severity }}</div><div>{{ row.text }}</div></div></td></tr>
+{% endif %}
+{% endfor %}
+</table>
+</div>
+</details>
+{% endfor %}
+{% endif %}
+</article>
+{% endfor %}
+</section>
+</main>
+{% if embedded_json is not none %}
+<script id='prereview-embedded-data' type='application/json'>{{ embedded_json | safe }}</script>
+{% endif %}
+</body>
+</html>
