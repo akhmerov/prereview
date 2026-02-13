@@ -93,6 +93,8 @@ def render_html(
     validation_stats = validation_report.get("stats", {})
     files = prepared.get("files", [])
     overview = annotations.get("overview", [])
+    mapped_count = validation_stats.get("mapped_comments", validation_stats.get("mapped_anchors", 0))
+    unmapped_count = validation_stats.get("unmapped_comments", validation_stats.get("unmapped_anchors", 0))
 
     file_annotations: dict[str, dict[str, Any]] = {}
     for file_annotation in annotations.get("files", []):
@@ -301,8 +303,8 @@ header {
     html_chunks.append(f"<div class='metric'><strong>Files</strong><div>{_esc(prepared_stats.get('files_changed', 0))}</div></div>")
     html_chunks.append(f"<div class='metric'><strong>Additions</strong><div>{_esc(prepared_stats.get('additions', 0))}</div></div>")
     html_chunks.append(f"<div class='metric'><strong>Deletions</strong><div>{_esc(prepared_stats.get('deletions', 0))}</div></div>")
-    html_chunks.append(f"<div class='metric'><strong>Mapped comments</strong><div>{_esc(validation_stats.get('mapped_comments', 0))}</div></div>")
-    html_chunks.append(f"<div class='metric'><strong>Unmapped comments</strong><div>{_esc(validation_stats.get('unmapped_comments', 0))}</div></div>")
+    html_chunks.append(f"<div class='metric'><strong>Mapped notes</strong><div>{_esc(mapped_count)}</div></div>")
+    html_chunks.append(f"<div class='metric'><strong>Unmapped notes</strong><div>{_esc(unmapped_count)}</div></div>")
     html_chunks.append("</div>")
 
     overview_lines = []

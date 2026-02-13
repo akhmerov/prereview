@@ -1,31 +1,23 @@
 {
-  "version": "1",
-  "target_prepared_review": "REPLACE_WITH_PREPARED_ID",
+  "version": "2",
+  "target_context_id": "REPLACE_WITH_CONTEXT_ID",
   "overview": [
-    "Scope: summarize files and line delta.",
-    "Primary intent: summarize what changed and why.",
-    "Reviewer focus: mention top risks or decision points."
+    "Scope: summarize files and meaningful change scope.",
+    "Primary intent: explain what changed and why.",
+    "Reviewer focus: note key risks or decision points."
   ],
   "files": [
     {
       "path": "src/example.py",
-      "breadcrumbs": ["src", "example.py"],
       "summary": "What changed + why, in one concise sentence.",
-      "comments": [],
-      "hunks": [
+      "anchors": [
         {
-          "new_start": 8,
-          "new_end": 14,
-          "title": "Hunk-level context",
-          "explanation": "What changed in this hunk and why it was needed.",
-          "comments": [
-            {
-              "line_start": 12,
-              "line_end": 13,
-              "text": "High-importance anchor: what changed and why this is risky.",
-              "severity": "warning"
-            }
-          ]
+          "anchor_id": "REPLACE_WITH_ANCHOR_ID",
+          "title": "Review focus",
+          "what_changed": "Describe concrete behavior/API/data-flow updates for this focus.",
+          "why_changed": "Describe intent and expected reviewer takeaway.",
+          "reviewer_focus": "Optional reviewer check or question.",
+          "severity": "note"
         }
       ]
     }

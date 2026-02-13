@@ -13,82 +13,22 @@ def _warning(code: str, message: str, location: str) -> dict[str, str]:
     return {"level": "warning", "code": code, "message": message, "location": location}
 
 
-def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _validate_comment(comment: Any, location: str) -> list[dict[str, str]]:
-    issues: list[dict[str, str]] = []
-    if not isinstance(comment, dict):
-        return [_error("comment_type", "Comment must be an object.", location)]
-
-    if "line_start" not in comment:
-        issues.append(_error("missing_line_start", "Comment is missing line_start.", location))
-    elif not _is_int(comment["line_start"]):
-        issues.append(_error("line_start_type", "line_start must be an integer.", location))
-
-    if "line_end" in comment and not _is_int(comment["line_end"]):
-        issues.append(_error("line_end_type", "line_end must be an integer.", location))
-
-    if "text" not in comment:
-        issues.append(_error("missing_text", "Comment is missing text.", location))
-    elif not isinstance(comment["text"], str) or not comment["text"].strip():
-        issues.append(_error("text_type", "Comment text must be a non-empty string.", location))
-
-    severity = comment.get("severity")
-    if severity is not None and severity not in _ALLOWED_SEVERITIES:
-        issues.append(
-            _error(
-                "bad_severity",
-                "severity must be one of info, note, warning, or risk.",
-                location,
-            )
-        )
-    return issues
-
-
-def _validate_hunk(hunk: Any, location: str) -> list[dict[str, str]]:
-    issues: list[dict[str, str]] = []
-    if not isinstance(hunk, dict):
-        return [_error("hunk_type", "Hunk annotation must be an object.", location)]
-
-    has_hunk_id = isinstance(hunk.get("hunk_id"), str) and bool(hunk.get("hunk_id"))
-    has_range = _is_int(hunk.get("new_start")) and _is_int(hunk.get("new_end"))
-    if not (has_hunk_id or has_range):
-        issues.append(
-            _error(
-                "hunk_anchor_missing",
-                "Hunk annotation needs either hunk_id or both new_start/new_end.",
-                location,
-            )
-        )
-
-    comments = hunk.get("comments", [])
-    if not isinstance(comments, list):
-        issues.append(_error("hunk_comments_type", "hunk.comments must be a list.", location))
-    else:
-        for idx, comment in enumerate(comments):
-            issues.extend(_validate_comment(comment, f"{location}.comments[{idx}]"))
-
-    return issues
-
-
 def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
 
     if not isinstance(annotations, dict):
         return [_error("root_type", "Annotations must be a JSON object.", "$")]
 
-    if annotations.get("version") != "1":
-        issues.append(_error("bad_version", "version must be the string '1'.", "$.version"))
+    if annotations.get("version") != "2":
+        issues.append(_error("bad_version", "version must be the string '2'.", "$.version"))
 
-    target = annotations.get("target_prepared_review")
+    target = annotations.get("target_context_id")
     if not isinstance(target, str) or not target:
         issues.append(
             _error(
                 "missing_target",
-                "target_prepared_review must be a non-empty string.",
-                "$.target_prepared_review",
+                "target_context_id must be a non-empty string.",
+                "$.target_context_id",
             )
         )
 
@@ -126,40 +66,75 @@ def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
         if not isinstance(path, str) or not path:
             issues.append(_error("file_path", "files.path must be a non-empty string.", f"{location}.path"))
 
-        breadcrumbs = file_entry.get("breadcrumbs")
-        if breadcrumbs is not None:
-            if not isinstance(breadcrumbs, list) or not all(isinstance(p, str) for p in breadcrumbs):
+        if "summary" in file_entry and not isinstance(file_entry["summary"], str):
+            issues.append(_error("summary_type", "summary must be a string.", f"{location}.summary"))
+
+        anchors = file_entry.get("anchors")
+        if not isinstance(anchors, list):
+            issues.append(_error("anchors_type", "files.anchors must be a list.", f"{location}.anchors"))
+            continue
+
+        for anchor_idx, anchor in enumerate(anchors):
+            anchor_loc = f"{location}.anchors[{anchor_idx}]"
+            if not isinstance(anchor, dict):
+                issues.append(_error("anchor_type", "Anchor must be an object.", anchor_loc))
+                continue
+
+            anchor_id = anchor.get("anchor_id")
+            if not isinstance(anchor_id, str) or not anchor_id:
+                issues.append(_error("anchor_id", "anchor_id must be a non-empty string.", f"{anchor_loc}.anchor_id"))
+
+            what_changed = anchor.get("what_changed")
+            if not isinstance(what_changed, str) or not what_changed.strip():
                 issues.append(
                     _error(
-                        "breadcrumbs_type",
-                        "breadcrumbs must be a list of strings.",
-                        f"{location}.breadcrumbs",
+                        "what_changed",
+                        "what_changed must be a non-empty string.",
+                        f"{anchor_loc}.what_changed",
                     )
                 )
 
-        comments = file_entry.get("comments", [])
-        if not isinstance(comments, list):
-            issues.append(_error("file_comments_type", "files.comments must be a list.", f"{location}.comments"))
-        else:
-            for comment_idx, comment in enumerate(comments):
-                issues.extend(_validate_comment(comment, f"{location}.comments[{comment_idx}]"))
+            why_changed = anchor.get("why_changed")
+            if not isinstance(why_changed, str) or not why_changed.strip():
+                issues.append(
+                    _error(
+                        "why_changed",
+                        "why_changed must be a non-empty string.",
+                        f"{anchor_loc}.why_changed",
+                    )
+                )
 
-        hunks = file_entry.get("hunks", [])
-        if not isinstance(hunks, list):
-            issues.append(_error("hunks_type", "files.hunks must be a list.", f"{location}.hunks"))
-        else:
-            for hunk_idx, hunk in enumerate(hunks):
-                issues.extend(_validate_hunk(hunk, f"{location}.hunks[{hunk_idx}]"))
+            if "title" in anchor and not isinstance(anchor.get("title"), str):
+                issues.append(_error("title_type", "title must be a string.", f"{anchor_loc}.title"))
 
-        if "summary" in file_entry and not isinstance(file_entry["summary"], str):
-            issues.append(_warning("summary_type", "summary should be a string.", f"{location}.summary"))
+            if "reviewer_focus" in anchor and not isinstance(anchor.get("reviewer_focus"), str):
+                issues.append(
+                    _error(
+                        "reviewer_focus_type",
+                        "reviewer_focus must be a string.",
+                        f"{anchor_loc}.reviewer_focus",
+                    )
+                )
+
+            if "risk" in anchor and not isinstance(anchor.get("risk"), str):
+                issues.append(_error("risk_type", "risk must be a string.", f"{anchor_loc}.risk"))
+
+            severity = anchor.get("severity")
+            if severity is not None and severity not in _ALLOWED_SEVERITIES:
+                issues.append(
+                    _error(
+                        "bad_severity",
+                        "severity must be one of info, note, warning, or risk.",
+                        f"{anchor_loc}.severity",
+                    )
+                )
 
     return issues
 
 
-def iter_file_comments(file_annotation: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any]]]:
-    for comment in file_annotation.get("comments", []):
-        yield "file", comment
-    for hunk in file_annotation.get("hunks", []):
-        for comment in hunk.get("comments", []):
-            yield "hunk", comment
+def iter_file_anchors(file_annotation: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    anchors = file_annotation.get("anchors", [])
+    if isinstance(anchors, list):
+        for anchor in anchors:
+            if isinstance(anchor, dict):
+                yield anchor

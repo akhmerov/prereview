@@ -3,12 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from prereview.cli import main
 from prereview.diff_parser import parse_unified_diff
 from prereview.draft import draft_annotations
-from prereview.prepare import make_prepared_review
+import prereview.prepare as prepare_module
+from prereview.prepare import (
+    build_review_context,
+    build_source_spec,
+    recompute_runtime_from_context,
+)
 from prereview.renderer import render_html
-from prereview.validate import validate_annotations
+from prereview.validate import evaluate_annotations, materialize_annotations_for_render
 
 SAMPLE_PATCH = """diff --git a/src/demo.py b/src/demo.py
 index 1111111..2222222 100644
@@ -22,88 +29,158 @@ index 1111111..2222222 100644
 """
 
 
-def test_validation_modes() -> None:
-    prepared = make_prepared_review(SAMPLE_PATCH, {"mode": "patch-file"})
+def _context_from_patch(patch: str, *, exclude_paths: list[str] | None = None) -> dict[str, object]:
+    patch_path = Path("/tmp/prereview-context.patch")
+    patch_path.write_text(patch, encoding="utf-8")
+    source_spec = build_source_spec(
+        patch_file=patch_path,
+        git_range=None,
+        use_working_tree=False,
+        include_untracked=False,
+        exclude_paths=exclude_paths or [],
+    )
+    return build_review_context(patch, source_spec)
+
+
+def test_build_review_context_does_not_store_raw_patch() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    assert context["version"] == "2"
+    assert "context_id" in context
+    assert "raw_patch" not in context
+    assert context["stats"]["files_changed"] == 1
+    assert context["files"]
+    first_file = context["files"][0]
+    assert first_file["path"] == "src/demo.py"
+    assert first_file["anchors"]
+
+
+def test_draft_annotations_use_anchor_ids() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = draft_annotations(context)
+    assert annotations["version"] == "2"
+    assert annotations["target_context_id"] == context["context_id"]
+    assert isinstance(annotations.get("overview"), list)
+
+    file_entry = annotations["files"][0]
+    assert file_entry["path"] == "src/demo.py"
+    assert "What changed:" in file_entry["summary"]
+    assert "Why:" in file_entry["summary"]
+
+    anchor = file_entry["anchors"][0]
+    assert "anchor_id" in anchor
+    assert "what_changed" in anchor
+    assert "why_changed" in anchor
+    assert "line_start" not in anchor
+
+
+def test_validate_and_materialize_annotations() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = draft_annotations(context)
+
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    assert render_annotations["files"]
+    first_hunk = render_annotations["files"][0]["hunks"][0]
+    assert "What changed:" in first_hunk["explanation"]
+    assert "Why:" in first_hunk["explanation"]
+
+
+def test_validate_fails_on_unknown_anchor() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
     annotations = {
-        "version": "1",
-        "target_prepared_review": prepared["prepared_id"],
+        "version": "2",
+        "target_context_id": context["context_id"],
+        "overview": ["Scope: 1 file."],
         "files": [
             {
                 "path": "src/demo.py",
-                "summary": "Refactors greeting return path.",
-                "comments": [
+                "summary": "What changed: placeholder. Why: placeholder.",
+                "anchors": [
                     {
-                        "line_start": 2,
-                        "text": "Variable extraction improves traceability.",
-                        "severity": "note",
+                        "anchor_id": "missing-anchor-id",
+                        "title": "X",
+                        "what_changed": "something",
+                        "why_changed": "reason",
                     }
                 ],
             }
         ],
     }
 
-    strict_report = validate_annotations(prepared, annotations, strict=True)
-    assert strict_report["valid"] is True
-    assert strict_report["stats"]["mapped_comments"] == 1
-
-    bad_annotations = {
-        **annotations,
-        "files": [{"path": "src/demo.py", "comments": [{"line_start": 99, "text": "out of range"}]}],
-    }
-    non_strict_report = validate_annotations(prepared, bad_annotations, strict=False)
-    assert non_strict_report["valid"] is True
-    assert non_strict_report["stats"]["unmapped_comments"] == 1
-
-    strict_bad_report = validate_annotations(prepared, bad_annotations, strict=True)
-    assert strict_bad_report["valid"] is False
+    report, _ = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is False
+    assert any(issue["code"] == "unknown_anchor" for issue in report["issues"])
 
 
-def test_cli_pipeline(tmp_path: Path) -> None:
+def test_render_preserves_indentation() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = draft_annotations(context)
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="Indent",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+    assert "white-space: pre;" in html
+    assert "class='code'" in html
+    assert "<span class='diff-prefix'>+</span>    message = &quot;hi&quot;" in html
+
+
+def test_cli_context_pipeline(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
-    prepared_path = tmp_path / "prepared-review.json"
+    context_path = tmp_path / "review-context.json"
     annotations_path = tmp_path / "annotations.json"
     report_path = tmp_path / "validation-report.json"
     html_path = tmp_path / "preview.html"
 
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
 
-    assert main(["prepare-diff", "--patch-file", str(patch_path), "--out", str(prepared_path)]) == 0
+    assert (
+        main(
+            [
+                "prepare-context",
+                "--patch-file",
+                str(patch_path),
+                "--out",
+                str(context_path),
+            ]
+        )
+        == 0
+    )
 
-    prepared = json.loads(prepared_path.read_text(encoding="utf-8"))
-    annotations = {
-        "version": "1",
-        "target_prepared_review": prepared["prepared_id"],
-        "files": [
-            {
-                "path": "src/demo.py",
-                "breadcrumbs": ["src", "demo.py"],
-                "summary": "Agent annotation summary.",
-                "hunks": [
-                    {
-                        "new_start": 2,
-                        "new_end": 3,
-                        "title": "Refactor notes",
-                        "explanation": "Split a literal return into assignment then return.",
-                        "comments": [
-                            {
-                                "line_start": 2,
-                                "text": "Intermediate variable clarifies intent.",
-                                "severity": "info",
-                            }
-                        ],
-                    }
-                ],
-            }
-        ],
-    }
-    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
+    assert (
+        main(
+            [
+                "draft-annotations",
+                "--context",
+                str(context_path),
+                "--output",
+                str(annotations_path),
+            ]
+        )
+        == 0
+    )
 
     assert (
         main(
             [
                 "validate-annotations",
-                "--prepared",
-                str(prepared_path),
+                "--context",
+                str(context_path),
                 "--annotations",
                 str(annotations_path),
                 "--report",
@@ -117,157 +194,26 @@ def test_cli_pipeline(tmp_path: Path) -> None:
         main(
             [
                 "build",
-                "--prepared",
-                str(prepared_path),
+                "--context",
+                str(context_path),
                 "--annotations",
                 str(annotations_path),
                 "--output",
                 str(html_path),
-                "--title",
-                "Pipeline Test",
             ]
         )
         == 0
     )
 
     rendered = html_path.read_text(encoding="utf-8")
-    assert "Pipeline Test" in rendered
+    assert "Review Overview" in rendered
     assert "src/demo.py" in rendered
-    assert "Intermediate variable clarifies intent." in rendered
 
-    validation_report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert validation_report["valid"] is True
-
-
-def test_render_function_smoke() -> None:
-    prepared = make_prepared_review(SAMPLE_PATCH, {"mode": "patch-file"})
-    annotations = {
-        "version": "1",
-        "target_prepared_review": prepared["prepared_id"],
-        "overview": [
-            "Scope: 1 file changed.",
-            "Primary intent: smoke-check rendering.",
-        ],
-        "files": [{"path": "src/demo.py", "comments": [{"line_start": 2, "text": "hello"}]}],
-    }
-    report = validate_annotations(prepared, annotations, strict=False)
-    html = render_html(
-        prepared,
-        annotations,
-        report,
-        title="Smoke",
-        max_expanded_lines=120,
-        collapse_large_hunks=True,
-        allow_split_hunks=True,
-    )
-    assert "Smoke" in html
-    assert "Review Overview" in html
-    assert "white-space: pre;" in html
-    assert "class='code'" in html
-    assert "<span class='diff-prefix'>+</span>    message = &quot;hi&quot;" in html
-    assert "hello" in html
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["valid"] is True
 
 
-def test_draft_annotations_include_reviewer_overview_and_what_why_explanations() -> None:
-    patch = """diff --git a/src/a.py b/src/a.py
-new file mode 100644
---- /dev/null
-+++ b/src/a.py
-@@ -0,0 +1,2 @@
-+def alpha():
-+    return 1
-diff --git a/src/b.py b/src/b.py
-new file mode 100644
---- /dev/null
-+++ b/src/b.py
-@@ -0,0 +1,2 @@
-+def beta():
-+    return 2
-"""
-    prepared = make_prepared_review(patch, {"mode": "patch-file"})
-    annotations = draft_annotations(prepared)
-
-    overview = annotations.get("overview")
-    assert isinstance(overview, list)
-    assert len(overview) >= 3
-
-    for file_entry in annotations["files"]:
-        assert "What changed:" in file_entry.get("summary", "")
-        assert "Why:" in file_entry.get("summary", "")
-        for hunk in file_entry.get("hunks", []):
-            explanation = hunk.get("explanation", "")
-            assert "What changed:" in explanation
-            assert "Why:" in explanation
-
-
-def test_draft_annotations_keep_line_notes_rare_and_high_importance() -> None:
-    low_risk_patch = """diff --git a/src/a.py b/src/a.py
-new file mode 100644
---- /dev/null
-+++ b/src/a.py
-@@ -0,0 +1,3 @@
-+def alpha():
-+    value = 1
-+    return value
-"""
-    low_risk_prepared = make_prepared_review(low_risk_patch, {"mode": "patch-file"})
-    low_risk_annotations = draft_annotations(low_risk_prepared)
-    low_risk_line_notes = sum(
-        len(hunk.get("comments", []))
-        for file_entry in low_risk_annotations["files"]
-        for hunk in file_entry.get("hunks", [])
-    )
-    assert low_risk_line_notes == 0
-
-    high_risk_patch = """diff --git a/src/run.py b/src/run.py
-new file mode 100644
---- /dev/null
-+++ b/src/run.py
-@@ -0,0 +1,3 @@
-+import subprocess
-+result = subprocess.run(["echo", "x"], check=False)
-+print(result.returncode)
-"""
-    high_risk_prepared = make_prepared_review(high_risk_patch, {"mode": "patch-file"})
-    high_risk_annotations = draft_annotations(high_risk_prepared)
-    high_risk_line_notes = [
-        comment
-        for file_entry in high_risk_annotations["files"]
-        for hunk in file_entry.get("hunks", [])
-        for comment in hunk.get("comments", [])
-    ]
-    assert len(high_risk_line_notes) == 1
-    assert high_risk_line_notes[0]["severity"] == "warning"
-    assert "Why:" in high_risk_line_notes[0]["text"]
-
-
-def test_cli_draft_annotations(tmp_path: Path) -> None:
-    patch_path = tmp_path / "change.patch"
-    prepared_path = tmp_path / "prepared-review.json"
-    annotations_path = tmp_path / "draft-annotations.json"
-    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
-
-    assert main(["prepare-diff", "--patch-file", str(patch_path), "--out", str(prepared_path)]) == 0
-    assert (
-        main(
-            [
-                "draft-annotations",
-                "--prepared",
-                str(prepared_path),
-                "--output",
-                str(annotations_path),
-            ]
-        )
-        == 0
-    )
-
-    annotations = json.loads(annotations_path.read_text(encoding="utf-8"))
-    assert annotations["version"] == "1"
-    assert isinstance(annotations.get("overview"), list)
-    assert annotations["files"]
-
-
-def test_make_prepared_review_excludes_paths() -> None:
+def test_recompute_runtime_excludes_nested_paths() -> None:
     patch = """diff --git a/showcase/out.txt b/showcase/out.txt
 new file mode 100644
 --- /dev/null
@@ -285,61 +231,22 @@ new file mode 100644
 --- /dev/null
 +++ b/src/keep.py
 @@ -0,0 +1 @@
-+print("keep")
++print(\"keep\")
 """
-    prepared = make_prepared_review(
-        patch,
-        {"mode": "patch-file"},
+
+    tmp_patch = Path("/tmp/prereview-test-exclude.patch")
+    tmp_patch.write_text(patch, encoding="utf-8")
+
+    source_spec = build_source_spec(
+        patch_file=tmp_patch,
+        git_range=None,
+        use_working_tree=False,
+        include_untracked=False,
         exclude_paths=["showcase/**"],
     )
-    paths = [file_entry["path"] for file_entry in prepared["files"]]
-    assert "src/keep.py" in paths
-    assert "showcase/out.txt" not in paths
-    assert "showcase/nested/out2.txt" not in paths
-
-
-def test_cli_prepare_diff_exclude_path(tmp_path: Path) -> None:
-    patch_path = tmp_path / "change.patch"
-    prepared_path = tmp_path / "prepared-review.json"
-    patch_path.write_text(
-        """diff --git a/showcase/out.txt b/showcase/out.txt
-new file mode 100644
---- /dev/null
-+++ b/showcase/out.txt
-@@ -0,0 +1 @@
-+artifact
-diff --git a/showcase/nested/out2.txt b/showcase/nested/out2.txt
-new file mode 100644
---- /dev/null
-+++ b/showcase/nested/out2.txt
-@@ -0,0 +1 @@
-+artifact-2
-diff --git a/src/keep.py b/src/keep.py
-new file mode 100644
---- /dev/null
-+++ b/src/keep.py
-@@ -0,0 +1 @@
-+print("keep")
-""",
-        encoding="utf-8",
-    )
-
-    assert (
-        main(
-            [
-                "prepare-diff",
-                "--patch-file",
-                str(patch_path),
-                "--exclude-path",
-                "showcase/**",
-                "--out",
-                str(prepared_path),
-            ]
-        )
-        == 0
-    )
-    prepared = json.loads(prepared_path.read_text(encoding="utf-8"))
-    paths = [file_entry["path"] for file_entry in prepared["files"]]
+    context = build_review_context(patch, source_spec)
+    runtime = recompute_runtime_from_context(context)
+    paths = [entry["path"] for entry in runtime["files"]]
     assert "src/keep.py" in paths
     assert "showcase/out.txt" not in paths
     assert "showcase/nested/out2.txt" not in paths
@@ -364,3 +271,67 @@ new file mode 100644
     paths = [file_patch.path for file_patch in files]
     assert "src/demo.py" in paths
     assert "notes.txt" in paths
+
+
+def test_collect_patch_uses_git_pathspec_excludes(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[tuple[list[str], int | None]] = []
+
+    def fake_run(args: list[str], *, max_output_bytes: int | None = None) -> str:
+        captured.append((args, max_output_bytes))
+        return ""
+
+    monkeypatch.setattr(prepare_module, "_run_git_command", fake_run)
+    source_spec = {
+        "mode": "working-tree",
+        "include_untracked": False,
+        "exclude_paths": ["showcase/**", "./tmp/**"],
+    }
+
+    patch = prepare_module.collect_patch_text_from_source(source_spec)
+    assert patch == ""
+    assert captured[0][0] == [
+        "diff",
+        "HEAD",
+        "--",
+        ".",
+        ":(exclude,glob)showcase/**",
+        ":(exclude,glob)tmp/**",
+    ]
+    assert captured[0][1] == prepare_module._MAX_TRACKED_PATCH_BYTES
+
+
+def test_build_untracked_patch_rejects_oversized_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact.txt"
+    artifact.write_text("x" * 16, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run(args: list[str], *, max_output_bytes: int | None = None) -> str:
+        if args == ["ls-files", "--others", "--exclude-standard"]:
+            return "artifact.txt\n"
+        return ""
+
+    monkeypatch.setattr(prepare_module, "_run_git_command", fake_run)
+    monkeypatch.setattr(prepare_module, "_MAX_UNTRACKED_FILE_BYTES", 8)
+
+    with pytest.raises(RuntimeError, match="oversized untracked file"):
+        prepare_module._build_untracked_patch([])
+
+
+def test_build_review_context_excludes_binary_files_by_default() -> None:
+    patch = """diff --git a/assets/logo.bin b/assets/logo.bin
+index 1234567..89abcde 100644
+Binary files a/assets/logo.bin and b/assets/logo.bin differ
+diff --git a/src/keep.py b/src/keep.py
+new file mode 100644
+--- /dev/null
++++ b/src/keep.py
+@@ -0,0 +1 @@
++print("keep")
+"""
+    context = _context_from_patch(patch)
+    paths = [file_entry["path"] for file_entry in context["files"]]
+    assert "src/keep.py" in paths
+    assert "assets/logo.bin" not in paths

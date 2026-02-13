@@ -1,42 +1,31 @@
-# Annotation Schema v1
+# Annotation Schema v2
 
 Top-level object:
 
-- `version` (string, required): must be `"1"`
-- `target_prepared_review` (string, required): must match `prepared_id`
-- `overview` (array[string], optional): 2-4 reviewer-facing header lines (scope, intent, focus/risk)
+- `version` (string, required): must be `"2"`
+- `target_context_id` (string, required): must match `context_id`
+- `overview` (array[string], optional): 2-4 reviewer-facing header lines
 - `files` (array, required)
 
 `files[]` object:
 
 - `path` (string, required)
-- `breadcrumbs` (array[string], optional)
 - `summary` (string, optional)
-- `comments` (array, optional)
-- `hunks` (array, optional)
+- `anchors` (array, required)
 
-Comment object (`files[].comments[]`, `files[].hunks[].comments[]`):
+`anchors[]` object:
 
-- `line_start` (int, required)
-- `line_end` (int, optional)
-- `text` (string, required)
+- `anchor_id` (string, required)
+- `title` (string, optional)
+- `what_changed` (string, required)
+- `why_changed` (string, required)
+- `reviewer_focus` (string, optional)
+- `risk` (string, optional)
 - `severity` (string, optional): one of `info`, `note`, `warning`, `risk`
-- `author` (string, optional)
-- `tags` (array[string], optional)
 
 Guidance:
 
-- Prefer hunk-level explanations for most cases.
-- Use line-level comments only for rare high-importance anchors.
-- For each explanation/comment, include both **what changed** and **why**.
-
-Hunk annotation object (`files[].hunks[]`):
-
-- `hunk_id` (string, optional)
-- `new_start` (int, optional)
-- `new_end` (int, optional)
-- `title` (string, optional)
-- `explanation` (string, optional)
-- `comments` (array, optional)
-
-A hunk annotation must include either `hunk_id`, or both `new_start` and `new_end`.
+- Prefer anchor/hunk-level explanations for most cases.
+- Keep high-severity notes rare.
+- Do not reference line numbers or diff hunk coordinates in explanation text.
+- For each anchor, include both **what changed** and **why**.
