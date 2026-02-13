@@ -6,15 +6,22 @@ from dataclasses import replace
 from prereview.models import FilePatch, Hunk, Line
 from prereview.util import hash_text
 
-_DIFF_GIT_RE = re.compile(r"^diff --git a/(.+) b/(.+)$")
+_DIFF_GIT_RE = re.compile(r"^diff --git (.+) (.+)$")
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
+_DIFF_PREFIXES = {"a", "b", "i", "w", "c", "o", "1", "2"}
 
 
 def _normalize_path(value: str) -> str:
     path = value.strip()
     if path.startswith('"') and path.endswith('"') and len(path) >= 2:
         path = path[1:-1]
-    if path.startswith("a/") or path.startswith("b/"):
+
+    if "/" in path:
+        prefix, remainder = path.split("/", 1)
+        if prefix in _DIFF_PREFIXES:
+            path = remainder
+
+    while path.startswith("./"):
         path = path[2:]
     return path
 

@@ -38,7 +38,15 @@ Use `--include-untracked` only when the user explicitly wants new untracked file
 
 - Use strict JSON schema version `1`.
 - Set `target_prepared_review` to the exact `prepared_id` from `prepared-review.json`.
+- Add top-level `overview` with 2-4 concise lines for the header:
+  scope (files/line delta), primary intent, and reviewer focus/risk.
 - Anchor comments to changed **new-file lines** using `line_start` and optional `line_end`.
+- Write each comment to explain both:
+  what changed in concrete terms (logic, API, data flow, or behavior), and
+  why it changed (intent, bug fix, reliability, performance, readability, or compatibility).
+- Avoid comments that only restate line text without rationale.
+- Prefer hunk-level explanations as the default.
+- Keep line-level comments rare: add them only for high-importance anchors (behavioral risk, parsing/validation changes, security/safety, or error handling changes).
 - Keep comments concise and specific; use `severity` when needed (`info`, `note`, `warning`, `risk`).
 - Add optional per-file `breadcrumbs` and `summary` for richer rendering.
 

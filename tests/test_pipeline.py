@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 
 from prereview.cli import main
+from prereview.diff_parser import parse_unified_diff
+from prereview.draft import draft_annotations
 from prereview.prepare import make_prepared_review
 from prereview.renderer import render_html
 from prereview.validate import validate_annotations
@@ -142,6 +144,10 @@ def test_render_function_smoke() -> None:
     annotations = {
         "version": "1",
         "target_prepared_review": prepared["prepared_id"],
+        "overview": [
+            "Scope: 1 file changed.",
+            "Primary intent: smoke-check rendering.",
+        ],
         "files": [{"path": "src/demo.py", "comments": [{"line_start": 2, "text": "hello"}]}],
     }
     report = validate_annotations(prepared, annotations, strict=False)
@@ -155,4 +161,203 @@ def test_render_function_smoke() -> None:
         allow_split_hunks=True,
     )
     assert "Smoke" in html
+    assert "Review Overview" in html
     assert "hello" in html
+
+
+def test_draft_annotations_include_reviewer_overview_and_what_why_explanations() -> None:
+    patch = """diff --git a/src/a.py b/src/a.py
+new file mode 100644
+--- /dev/null
++++ b/src/a.py
+@@ -0,0 +1,2 @@
++def alpha():
++    return 1
+diff --git a/src/b.py b/src/b.py
+new file mode 100644
+--- /dev/null
++++ b/src/b.py
+@@ -0,0 +1,2 @@
++def beta():
++    return 2
+"""
+    prepared = make_prepared_review(patch, {"mode": "patch-file"})
+    annotations = draft_annotations(prepared)
+
+    overview = annotations.get("overview")
+    assert isinstance(overview, list)
+    assert len(overview) >= 3
+
+    for file_entry in annotations["files"]:
+        assert "What changed:" in file_entry.get("summary", "")
+        assert "Why:" in file_entry.get("summary", "")
+        for hunk in file_entry.get("hunks", []):
+            explanation = hunk.get("explanation", "")
+            assert "What changed:" in explanation
+            assert "Why:" in explanation
+
+
+def test_draft_annotations_keep_line_notes_rare_and_high_importance() -> None:
+    low_risk_patch = """diff --git a/src/a.py b/src/a.py
+new file mode 100644
+--- /dev/null
++++ b/src/a.py
+@@ -0,0 +1,3 @@
++def alpha():
++    value = 1
++    return value
+"""
+    low_risk_prepared = make_prepared_review(low_risk_patch, {"mode": "patch-file"})
+    low_risk_annotations = draft_annotations(low_risk_prepared)
+    low_risk_line_notes = sum(
+        len(hunk.get("comments", []))
+        for file_entry in low_risk_annotations["files"]
+        for hunk in file_entry.get("hunks", [])
+    )
+    assert low_risk_line_notes == 0
+
+    high_risk_patch = """diff --git a/src/run.py b/src/run.py
+new file mode 100644
+--- /dev/null
++++ b/src/run.py
+@@ -0,0 +1,3 @@
++import subprocess
++result = subprocess.run(["echo", "x"], check=False)
++print(result.returncode)
+"""
+    high_risk_prepared = make_prepared_review(high_risk_patch, {"mode": "patch-file"})
+    high_risk_annotations = draft_annotations(high_risk_prepared)
+    high_risk_line_notes = [
+        comment
+        for file_entry in high_risk_annotations["files"]
+        for hunk in file_entry.get("hunks", [])
+        for comment in hunk.get("comments", [])
+    ]
+    assert len(high_risk_line_notes) == 1
+    assert high_risk_line_notes[0]["severity"] == "warning"
+    assert "Why:" in high_risk_line_notes[0]["text"]
+
+
+def test_cli_draft_annotations(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    prepared_path = tmp_path / "prepared-review.json"
+    annotations_path = tmp_path / "draft-annotations.json"
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert main(["prepare-diff", "--patch-file", str(patch_path), "--out", str(prepared_path)]) == 0
+    assert (
+        main(
+            [
+                "draft-annotations",
+                "--prepared",
+                str(prepared_path),
+                "--output",
+                str(annotations_path),
+            ]
+        )
+        == 0
+    )
+
+    annotations = json.loads(annotations_path.read_text(encoding="utf-8"))
+    assert annotations["version"] == "1"
+    assert isinstance(annotations.get("overview"), list)
+    assert annotations["files"]
+
+
+def test_make_prepared_review_excludes_paths() -> None:
+    patch = """diff --git a/showcase/out.txt b/showcase/out.txt
+new file mode 100644
+--- /dev/null
++++ b/showcase/out.txt
+@@ -0,0 +1 @@
++artifact
+diff --git a/showcase/nested/out2.txt b/showcase/nested/out2.txt
+new file mode 100644
+--- /dev/null
++++ b/showcase/nested/out2.txt
+@@ -0,0 +1 @@
++artifact-2
+diff --git a/src/keep.py b/src/keep.py
+new file mode 100644
+--- /dev/null
++++ b/src/keep.py
+@@ -0,0 +1 @@
++print("keep")
+"""
+    prepared = make_prepared_review(
+        patch,
+        {"mode": "patch-file"},
+        exclude_paths=["showcase/**"],
+    )
+    paths = [file_entry["path"] for file_entry in prepared["files"]]
+    assert "src/keep.py" in paths
+    assert "showcase/out.txt" not in paths
+    assert "showcase/nested/out2.txt" not in paths
+
+
+def test_cli_prepare_diff_exclude_path(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    prepared_path = tmp_path / "prepared-review.json"
+    patch_path.write_text(
+        """diff --git a/showcase/out.txt b/showcase/out.txt
+new file mode 100644
+--- /dev/null
++++ b/showcase/out.txt
+@@ -0,0 +1 @@
++artifact
+diff --git a/showcase/nested/out2.txt b/showcase/nested/out2.txt
+new file mode 100644
+--- /dev/null
++++ b/showcase/nested/out2.txt
+@@ -0,0 +1 @@
++artifact-2
+diff --git a/src/keep.py b/src/keep.py
+new file mode 100644
+--- /dev/null
++++ b/src/keep.py
+@@ -0,0 +1 @@
++print("keep")
+""",
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "prepare-diff",
+                "--patch-file",
+                str(patch_path),
+                "--exclude-path",
+                "showcase/**",
+                "--out",
+                str(prepared_path),
+            ]
+        )
+        == 0
+    )
+    prepared = json.loads(prepared_path.read_text(encoding="utf-8"))
+    paths = [file_entry["path"] for file_entry in prepared["files"]]
+    assert "src/keep.py" in paths
+    assert "showcase/out.txt" not in paths
+    assert "showcase/nested/out2.txt" not in paths
+
+
+def test_parse_handles_mnemonic_and_noindex_prefixes() -> None:
+    patch = """diff --git w/src/demo.py w/src/demo.py
+index 1111111..2222222 100644
+--- w/src/demo.py
++++ w/src/demo.py
+@@ -1 +1 @@
+-old
++new
+diff --git 1/./notes.txt 2/./notes.txt
+new file mode 100644
+--- /dev/null
++++ 2/./notes.txt
+@@ -0,0 +1 @@
++hello
+"""
+    files = parse_unified_diff(patch)
+    paths = [file_patch.path for file_patch in files]
+    assert "src/demo.py" in paths
+    assert "notes.txt" in paths

@@ -92,6 +92,7 @@ def render_html(
     prepared_stats = prepared.get("stats", {})
     validation_stats = validation_report.get("stats", {})
     files = prepared.get("files", [])
+    overview = annotations.get("overview", [])
 
     file_annotations: dict[str, dict[str, Any]] = {}
     for file_annotation in annotations.get("files", []):
@@ -155,6 +156,21 @@ header {
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
   min-width: 140px;
+}
+.overview {
+  margin-top: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.65rem 0.85rem;
+}
+.overview h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.overview ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.15rem;
 }
 .files {
   display: grid;
@@ -280,6 +296,18 @@ header {
     html_chunks.append(f"<div class='metric'><strong>Mapped comments</strong><div>{_esc(validation_stats.get('mapped_comments', 0))}</div></div>")
     html_chunks.append(f"<div class='metric'><strong>Unmapped comments</strong><div>{_esc(validation_stats.get('unmapped_comments', 0))}</div></div>")
     html_chunks.append("</div>")
+
+    overview_lines = []
+    if isinstance(overview, list):
+        overview_lines = [line for line in overview if isinstance(line, str) and line.strip()]
+    if overview_lines:
+        html_chunks.append("<section class='overview'>")
+        html_chunks.append("<h2>Review Overview</h2>")
+        html_chunks.append("<ul>")
+        for line in overview_lines[:8]:
+            html_chunks.append(f"<li>{_esc(line)}</li>")
+        html_chunks.append("</ul>")
+        html_chunks.append("</section>")
 
     if issues:
         html_chunks.append("<section class='validation'>")

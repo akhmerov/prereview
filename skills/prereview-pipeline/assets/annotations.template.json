@@ -1,30 +1,28 @@
 {
   "version": "1",
   "target_prepared_review": "REPLACE_WITH_PREPARED_ID",
+  "overview": [
+    "Scope: summarize files and line delta.",
+    "Primary intent: summarize what changed and why.",
+    "Reviewer focus: mention top risks or decision points."
+  ],
   "files": [
     {
       "path": "src/example.py",
       "breadcrumbs": ["src", "example.py"],
-      "summary": "One-line summary of why the file changed.",
-      "comments": [
-        {
-          "line_start": 10,
-          "text": "Short explanation tied to a changed line.",
-          "severity": "note",
-          "author": "agent"
-        }
-      ],
+      "summary": "What changed + why, in one concise sentence.",
+      "comments": [],
       "hunks": [
         {
           "new_start": 8,
           "new_end": 14,
           "title": "Hunk-level context",
-          "explanation": "Explain rationale for this cluster of changes.",
+          "explanation": "What changed in this hunk and why it was needed.",
           "comments": [
             {
               "line_start": 12,
               "line_end": 13,
-              "text": "Risk callout for reviewers.",
+              "text": "High-importance anchor: what changed and why this is risky.",
               "severity": "warning"
             }
           ]

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from prereview.draft import draft_annotations
 from prereview.prepare import collect_patch_text, make_prepared_review
 from prereview.renderer import render_html
 from prereview.util import load_json, write_json, write_text
@@ -18,8 +19,9 @@ def _prepare_cmd(args: argparse.Namespace) -> int:
         git_range=args.git_range,
         use_working_tree=args.use_working_tree,
         include_untracked=args.include_untracked,
+        exclude_paths=args.exclude_path,
     )
-    prepared = make_prepared_review(raw_patch, source)
+    prepared = make_prepared_review(raw_patch, source, exclude_paths=args.exclude_path)
     write_json(args.out, prepared)
 
     stats = prepared["stats"]
@@ -47,6 +49,14 @@ def _validate_cmd(args: argparse.Namespace) -> int:
         print(f"- [{issue['level']}] {issue['code']}: {issue['message']} ({issue['location']})")
 
     return 0 if report["valid"] else 1
+
+
+def _draft_cmd(args: argparse.Namespace) -> int:
+    prepared = load_json(args.prepared)
+    annotations = draft_annotations(prepared, max_hunks_per_file=args.max_hunks_per_file)
+    write_json(args.output, annotations)
+    print(f"Wrote draft annotations for {len(annotations['files'])} files -> {args.output}")
+    return 0
 
 
 def _build_cmd(args: argparse.Namespace) -> int:
@@ -98,8 +108,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include untracked files as additions.",
     )
+    prepare_parser.add_argument(
+        "--exclude-path",
+        action="append",
+        default=[],
+        help="Exclude paths matching this glob from the prepared review (repeatable, e.g. 'showcase/**').",
+    )
     prepare_parser.add_argument("--out", type=Path, required=True, help="Output prepared-review JSON path.")
     prepare_parser.set_defaults(func=_prepare_cmd)
+
+    draft_parser = subparsers.add_parser("draft-annotations", help="Generate draft annotations from a prepared review.")
+    draft_parser.add_argument("--prepared", type=Path, required=True, help="Path to prepared-review JSON.")
+    draft_parser.add_argument("--output", type=Path, required=True, help="Output path for draft annotations JSON.")
+    draft_parser.add_argument(
+        "--max-hunks-per-file",
+        type=int,
+        default=1,
+        help="Number of hunks to annotate per file when drafting.",
+    )
+    draft_parser.set_defaults(func=_draft_cmd)
 
     validate_parser = subparsers.add_parser("validate-annotations", help="Validate annotation schema and anchors.")
     validate_parser.add_argument("--prepared", type=Path, required=True, help="Path to prepared-review JSON.")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import fnmatch
 import subprocess
+from pathlib import PurePosixPath
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +59,7 @@ def collect_patch_text(
     git_range: str | None,
     use_working_tree: bool,
     include_untracked: bool,
+    exclude_paths: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     mode = ""
     raw_patch = ""
@@ -86,6 +89,7 @@ def collect_patch_text(
         "mode": mode,
         "git_range": git_range,
         "include_untracked": include_untracked,
+        "exclude_paths": exclude_paths or [],
         "cwd": str(Path.cwd()),
         "prepared_at": utc_now_iso(),
     }
@@ -100,8 +104,31 @@ def _stats(files: list[FilePatch]) -> dict[str, int]:
     }
 
 
-def make_prepared_review(raw_patch: str, source: dict[str, Any]) -> dict[str, Any]:
+def _is_excluded(path: str, exclude_paths: list[str]) -> bool:
+    normalized = str(PurePosixPath(path)).lstrip("./")
+    for pattern in exclude_paths:
+        normalized_pattern = pattern.strip().lstrip("./")
+        if not normalized_pattern:
+            continue
+        if normalized_pattern.endswith("/**"):
+            prefix = normalized_pattern[:-3].rstrip("/")
+            if normalized == prefix or normalized.startswith(prefix + "/"):
+                return True
+        if fnmatch.fnmatchcase(normalized, normalized_pattern):
+            return True
+    return False
+
+
+def make_prepared_review(
+    raw_patch: str,
+    source: dict[str, Any],
+    *,
+    exclude_paths: list[str] | None = None,
+) -> dict[str, Any]:
     files = parse_unified_diff(raw_patch)
+    patterns = exclude_paths or []
+    if patterns:
+        files = [file for file in files if not _is_excluded(file.path, patterns)]
     prepared_id = hash_text(raw_patch)
     prepared = {
         "version": "1",

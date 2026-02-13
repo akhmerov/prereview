@@ -92,6 +92,25 @@ def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
             )
         )
 
+    overview = annotations.get("overview")
+    if overview is not None:
+        if not isinstance(overview, list) or not all(isinstance(line, str) and line.strip() for line in overview):
+            issues.append(
+                _error(
+                    "overview_type",
+                    "overview must be a list of non-empty strings.",
+                    "$.overview",
+                )
+            )
+        elif len(overview) > 8:
+            issues.append(
+                _warning(
+                    "overview_length",
+                    "overview should typically be 2-5 lines for reviewer readability.",
+                    "$.overview",
+                )
+            )
+
     files = annotations.get("files")
     if not isinstance(files, list):
         issues.append(_error("files_type", "files must be a list.", "$.files"))
