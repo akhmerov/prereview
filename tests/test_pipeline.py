@@ -7,7 +7,6 @@ import pytest
 
 from prereview.cli import main
 from prereview.diff_parser import parse_unified_diff
-from prereview.draft import draft_annotations
 import prereview.prepare as prepare_module
 from prereview.prepare import (
     build_review_context,
@@ -42,6 +41,51 @@ def _context_from_patch(patch: str, *, exclude_paths: list[str] | None = None) -
     return build_review_context(patch, source_spec)
 
 
+def _annotations_from_context(context: dict[str, object]) -> dict[str, object]:
+    file_annotations: list[dict[str, object]] = []
+    for file_entry in context.get("files", []):
+        if not isinstance(file_entry, dict):
+            continue
+        path = file_entry.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+
+        anchors: list[dict[str, object]] = []
+        for anchor in file_entry.get("anchors", []):
+            if not isinstance(anchor, dict):
+                continue
+            anchor_id = anchor.get("anchor_id")
+            if not isinstance(anchor_id, str) or not anchor_id:
+                continue
+            anchors.append(
+                {
+                    "anchor_id": anchor_id,
+                    "title": "Change focus",
+                    "what_changed": "Behavior was adjusted in this change focus.",
+                    "why_changed": "To improve correctness and maintainability.",
+                }
+            )
+
+        file_annotations.append(
+            {
+                "path": path,
+                "summary": "What changed: focused updates in this file. Why: improve correctness and maintainability.",
+                "anchors": anchors,
+            }
+        )
+
+    return {
+        "version": "2",
+        "target_context_id": context["context_id"],
+        "overview": [
+            "Scope: focused diff under review.",
+            "Primary intent: explain what changed and why.",
+            "Reviewer focus: verify behavioral impact and risk assumptions.",
+        ],
+        "files": file_annotations,
+    }
+
+
 def test_build_review_context_does_not_store_raw_patch() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
     assert context["version"] == "2"
@@ -54,9 +98,9 @@ def test_build_review_context_does_not_store_raw_patch() -> None:
     assert first_file["anchors"]
 
 
-def test_draft_annotations_use_anchor_ids() -> None:
+def test_authored_annotations_use_anchor_ids() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
-    annotations = draft_annotations(context)
+    annotations = _annotations_from_context(context)
     assert annotations["version"] == "2"
     assert annotations["target_context_id"] == context["context_id"]
     assert isinstance(annotations.get("overview"), list)
@@ -75,7 +119,7 @@ def test_draft_annotations_use_anchor_ids() -> None:
 
 def test_validate_and_materialize_annotations() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
-    annotations = draft_annotations(context)
+    annotations = _annotations_from_context(context)
 
     report, runtime = evaluate_annotations(context, annotations, strict=True)
     assert report["valid"] is True
@@ -117,7 +161,7 @@ def test_validate_fails_on_unknown_anchor() -> None:
 
 def test_render_preserves_indentation() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
-    annotations = draft_annotations(context)
+    annotations = _annotations_from_context(context)
     report, runtime = evaluate_annotations(context, annotations, strict=True)
     assert report["valid"] is True
     assert runtime is not None
@@ -161,18 +205,9 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
         == 0
     )
 
-    assert (
-        main(
-            [
-                "draft-annotations",
-                "--context",
-                str(context_path),
-                "--output",
-                str(annotations_path),
-            ]
-        )
-        == 0
-    )
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    annotations = _annotations_from_context(context)
+    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
 
     assert (
         main(
@@ -218,18 +253,9 @@ def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
         )
         == 0
     )
-    assert (
-        main(
-            [
-                "draft-annotations",
-                "--context",
-                str(context_path),
-                "--output",
-                str(annotations_path),
-            ]
-        )
-        == 0
-    )
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    annotations = _annotations_from_context(context)
+    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
     assert (
         main(
             [
@@ -313,6 +339,7 @@ def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
     assert "Agent action:" in message
     assert "unknown_anchor" in message
     assert "Rerun after fixes:" in message
+    assert "draft-annotations" not in message
     assert context_path.exists()
     assert annotations_path.exists()
     assert not html_path.exists()
@@ -338,18 +365,9 @@ def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pyt
         )
         == 0
     )
-    assert (
-        main(
-            [
-                "draft-annotations",
-                "--context",
-                str(context_path),
-                "--output",
-                str(annotations_path),
-            ]
-        )
-        == 0
-    )
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    annotations = _annotations_from_context(context)
+    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
     assert (
         main(
             [
@@ -364,6 +382,12 @@ def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pyt
     )
 
     assert (tmp_path / "review.html").exists()
+
+
+def test_cli_draft_annotations_subcommand_is_removed() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["draft-annotations"])
+    assert excinfo.value.code == 2
 
 
 def test_recompute_runtime_excludes_nested_paths() -> None:

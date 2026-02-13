@@ -4,7 +4,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from prereview.draft import draft_annotations
 from prereview.prepare import (
     build_review_context,
     build_source_spec,
@@ -43,14 +42,6 @@ def _prepare_context_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
-def _draft_cmd(args: argparse.Namespace) -> int:
-    context = load_json(args.context)
-    annotations = draft_annotations(context)
-    write_json(args.output, annotations)
-    print(f"Wrote draft annotations for {len(annotations['files'])} files -> {args.output}")
-    return 0
-
-
 def _build_validation_failure_message(args: argparse.Namespace, report: dict[str, object]) -> str:
     grouped = grouped_issues(report)
     errors = len(grouped.get("error", []))
@@ -77,10 +68,6 @@ def _build_validation_failure_message(args: argparse.Namespace, report: dict[str
     lines.append("Rerun after fixes:")
     lines.append(
         f"prereview build --context {args.context} --annotations {args.annotations} --output {args.output}"
-    )
-    lines.append("Optional regeneration:")
-    lines.append(
-        f"prereview draft-annotations --context {args.context} --output {args.annotations}"
     )
     return "\n".join(lines)
 
@@ -167,11 +154,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_parser.add_argument("--out", type=Path, required=True, help="Output review-context JSON path.")
     prepare_parser.set_defaults(func=_prepare_context_cmd)
-
-    draft_parser = subparsers.add_parser("draft-annotations", help="Generate draft annotations from review context.")
-    draft_parser.add_argument("--context", type=Path, required=True, help="Path to review-context JSON.")
-    draft_parser.add_argument("--output", type=Path, required=True, help="Output path for draft annotations JSON.")
-    draft_parser.set_defaults(func=_draft_cmd)
 
     build_parser = subparsers.add_parser(
         "build",
