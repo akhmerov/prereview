@@ -1,6 +1,9 @@
 ---
 name: prereview-pipeline
-description: Use this skill when the user wants a reliable staged local preview workflow for code review artifacts: prepare reviewer context, write anchor-based annotations, validate against current diff, and build static HTML.
+description: >-
+  Use this skill when the user wants a reliable staged local preview workflow for code review
+  artifacts: prepare reviewer context, write anchor-based annotations, validate against current
+  diff, and build static HTML.
 ---
 
 # Prereview Pipeline
@@ -17,16 +20,14 @@ Use this workflow when the task is to generate local rich previews from agent-ge
 
 1. Run `prereview prepare-context --out review-context.json`.
 2. Read `review-context.json` and author `annotations.json`.
-3. Run `prereview validate-annotations --context review-context.json --annotations annotations.json`.
-4. If validation fails, fix `annotations.json` and re-run validation.
-5. Run `prereview build --context review-context.json --annotations annotations.json --output review.html`.
+3. Run `prereview build --context review-context.json --annotations annotations.json --output review.html`.
+4. If build reports validation issues, fix `annotations.json` and re-run build.
 
-Never skip validation when annotations are edited.
+Build includes validation and blocks HTML output until issues are resolved.
 Default review target is `review.html` at repository root so the user can open it directly.
 Override the target only when the user explicitly asks for a different path (`--output PATH`).
 Build consumes `review-context.json` and `annotations.json` by default (to minimize clutter) and embeds their data in `review.html`.
 Use `--keep-inputs` only when the user explicitly asks to retain intermediate JSON files.
-Only write `--report validation-report.json` when the user explicitly asks for a machine-readable validation artifact.
 
 ## Input source selection
 
@@ -58,6 +59,6 @@ Read `references/annotation-schema.md` for exact field rules and `assets/annotat
 
 ## Recovery rules
 
-- If `validate-annotations` reports unknown anchors, regenerate context and update annotations.
+- If `build` reports unknown anchors or other validation issues, update annotations and rerun build.
 - If context fingerprint mismatch is reported, regenerate context before validating/building.
 - If build fails, do not patch output HTML directly; fix inputs and rebuild.

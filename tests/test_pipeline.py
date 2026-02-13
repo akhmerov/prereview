@@ -144,7 +144,6 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"
     annotations_path = tmp_path / "annotations.json"
-    report_path = tmp_path / "validation-report.json"
     html_path = tmp_path / "preview.html"
 
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
@@ -178,21 +177,6 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
     assert (
         main(
             [
-                "validate-annotations",
-                "--context",
-                str(context_path),
-                "--annotations",
-                str(annotations_path),
-                "--report",
-                str(report_path),
-            ]
-        )
-        == 0
-    )
-
-    assert (
-        main(
-            [
                 "build",
                 "--context",
                 str(context_path),
@@ -212,9 +196,6 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
     assert '"validation_report"' in rendered
     assert not context_path.exists()
     assert not annotations_path.exists()
-
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["valid"] is True
 
 
 def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
@@ -269,6 +250,72 @@ def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
     assert annotations_path.exists()
     rendered = html_path.read_text(encoding="utf-8")
     assert "prereview-embedded-data" in rendered
+
+
+def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    context_path = tmp_path / "review-context.json"
+    annotations_path = tmp_path / "annotations.json"
+    html_path = tmp_path / "review.html"
+
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "prepare-context",
+                "--patch-file",
+                str(patch_path),
+                "--out",
+                str(context_path),
+            ]
+        )
+        == 0
+    )
+
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    broken_annotations = {
+        "version": "2",
+        "target_context_id": context["context_id"],
+        "overview": ["Scope: 1 file."],
+        "files": [
+            {
+                "path": "src/demo.py",
+                "summary": "What changed: placeholder. Why: placeholder.",
+                "anchors": [
+                    {
+                        "anchor_id": "missing-anchor-id",
+                        "title": "Bad anchor",
+                        "what_changed": "placeholder",
+                        "why_changed": "placeholder",
+                    }
+                ],
+            }
+        ],
+    }
+    annotations_path.write_text(json.dumps(broken_annotations), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "build",
+                "--context",
+                str(context_path),
+                "--annotations",
+                str(annotations_path),
+                "--output",
+                str(html_path),
+            ]
+        )
+
+    message = str(excinfo.value)
+    assert "Build validation failed" in message
+    assert "Agent action:" in message
+    assert "unknown_anchor" in message
+    assert "Rerun after fixes:" in message
+    assert context_path.exists()
+    assert annotations_path.exists()
+    assert not html_path.exists()
 
 
 def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

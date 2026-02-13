@@ -43,25 +43,6 @@ def _prepare_context_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
-def _validate_cmd(args: argparse.Namespace) -> int:
-    context = load_json(args.context)
-    annotations = load_json(args.annotations)
-    report, _ = evaluate_annotations(context, annotations, strict=args.strict)
-
-    if args.report is not None:
-        write_json(args.report, report)
-
-    grouped = grouped_issues(report)
-    errors = len(grouped.get("error", []))
-    warnings = len(grouped.get("warning", []))
-    print(f"Validation: {errors} errors, {warnings} warnings")
-
-    for issue in report["issues"][:40]:
-        print(f"- [{issue['level']}] {issue['code']}: {issue['message']} ({issue['location']})")
-
-    return 0 if report["valid"] else 1
-
-
 def _draft_cmd(args: argparse.Namespace) -> int:
     context = load_json(args.context)
     annotations = draft_annotations(context)
@@ -70,17 +51,47 @@ def _draft_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_validation_failure_message(args: argparse.Namespace, report: dict[str, object]) -> str:
+    grouped = grouped_issues(report)
+    errors = len(grouped.get("error", []))
+    warnings = len(grouped.get("warning", []))
+    issues = report.get("issues", [])
+    issue_list = issues if isinstance(issues, list) else []
+
+    lines = [
+        f"Build validation failed: {errors} errors, {warnings} warnings.",
+        "Agent action: update annotations to resolve the validation issues below, then rerun build.",
+    ]
+    for issue in issue_list[:20]:
+        if not isinstance(issue, dict):
+            continue
+        lines.append(
+            f"- [{issue.get('level', 'warning')}] {issue.get('code', 'issue')}: "
+            f"{issue.get('message', '')} ({issue.get('location', '')})"
+        )
+    if len(issue_list) > 20:
+        lines.append(f"- ... {len(issue_list) - 20} more issues")
+
+    lines.append(f"Context file: {args.context}")
+    lines.append(f"Annotations file: {args.annotations}")
+    lines.append("Rerun after fixes:")
+    lines.append(
+        f"prereview build --context {args.context} --annotations {args.annotations} --output {args.output}"
+    )
+    lines.append("Optional regeneration:")
+    lines.append(
+        f"prereview draft-annotations --context {args.context} --output {args.annotations}"
+    )
+    return "\n".join(lines)
+
+
 def _build_cmd(args: argparse.Namespace) -> int:
     context = load_json(args.context)
     annotations = load_json(args.annotations)
     report, runtime = evaluate_annotations(context, annotations, strict=args.strict)
 
     if not report["valid"]:
-        grouped = grouped_issues(report)
-        errors = len(grouped.get("error", []))
-        warnings = len(grouped.get("warning", []))
-        message = f"Cannot build preview due to validation issues ({errors} errors, {warnings} warnings)."
-        raise SystemExit(message)
+        raise SystemExit(_build_validation_failure_message(args, report))
 
     if runtime is None:
         raise SystemExit("Cannot build preview because runtime diff recomputation failed.")
@@ -162,20 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
     draft_parser.add_argument("--output", type=Path, required=True, help="Output path for draft annotations JSON.")
     draft_parser.set_defaults(func=_draft_cmd)
 
-    validate_parser = subparsers.add_parser("validate-annotations", help="Validate anchor-based annotations.")
-    validate_parser.add_argument("--context", type=Path, required=True, help="Path to review-context JSON.")
-    validate_parser.add_argument("--annotations", type=Path, required=True, help="Path to annotations JSON.")
-    validate_parser.add_argument("--report", type=Path, help="Optional machine-readable validation report path.")
-    validate_parser.add_argument(
-        "--no-strict",
-        action="store_false",
-        dest="strict",
-        help="Downgrade unknown anchors/files to warnings.",
+    build_parser = subparsers.add_parser(
+        "build",
+        help="Build static HTML from context and annotations (includes validation).",
     )
-    validate_parser.set_defaults(strict=True)
-    validate_parser.set_defaults(func=_validate_cmd)
-
-    build_parser = subparsers.add_parser("build", help="Build static HTML from context and annotations.")
     build_parser.add_argument("--context", type=Path, required=True, help="Path to review-context JSON.")
     build_parser.add_argument("--annotations", type=Path, required=True, help="Path to annotations JSON.")
     build_parser.add_argument(
@@ -211,9 +212,16 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument(
         "--strict",
         action="store_true",
-        help="Enable strict validation before rendering.",
+        dest="strict",
+        help="Treat unresolved anchors/files as errors during build validation (default).",
     )
-    build_parser.set_defaults(collapse_large_hunks=True, allow_split_hunks=True)
+    build_parser.add_argument(
+        "--no-strict",
+        action="store_false",
+        dest="strict",
+        help="Downgrade unknown anchors/files to warnings during build validation.",
+    )
+    build_parser.set_defaults(collapse_large_hunks=True, allow_split_hunks=True, strict=True)
     build_parser.set_defaults(func=_build_cmd)
 
     return parser
