@@ -1,0 +1,8 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# build and test artifacts
+*.conda
+.pytest_cache/
+__pycache__/

@@ -1,0 +1,35 @@
+{
+  "version": "1",
+  "target_prepared_review": "REPLACE_WITH_PREPARED_ID",
+  "files": [
+    {
+      "path": "src/example.py",
+      "breadcrumbs": ["src", "example.py"],
+      "summary": "One-line summary of why the file changed.",
+      "comments": [
+        {
+          "line_start": 10,
+          "text": "Short explanation tied to a changed line.",
+          "severity": "note",
+          "author": "agent"
+        }
+      ],
+      "hunks": [
+        {
+          "new_start": 8,
+          "new_end": 14,
+          "title": "Hunk-level context",
+          "explanation": "Explain rationale for this cluster of changes.",
+          "comments": [
+            {
+              "line_start": 12,
+              "line_end": 13,
+              "text": "Risk callout for reviewers.",
+              "severity": "warning"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

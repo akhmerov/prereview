@@ -1,0 +1,7 @@
+interface:
+  display_name: "Prereview Pipeline"
+  short_description: "Generate staged diff-to-HTML review previews"
+  default_prompt: "Use $prereview-pipeline to run prepare-diff, write annotations, validate, and build a static HTML prereview."
+
+policy:
+  allow_implicit_invocation: true
