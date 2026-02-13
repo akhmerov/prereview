@@ -208,9 +208,115 @@ def test_cli_context_pipeline(tmp_path: Path) -> None:
     rendered = html_path.read_text(encoding="utf-8")
     assert "Review Overview" in rendered
     assert "src/demo.py" in rendered
+    assert "prereview-embedded-data" in rendered
+    assert '"validation_report"' in rendered
+    assert not context_path.exists()
+    assert not annotations_path.exists()
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["valid"] is True
+
+
+def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    context_path = tmp_path / "review-context.json"
+    annotations_path = tmp_path / "annotations.json"
+    html_path = tmp_path / "review.html"
+
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "prepare-context",
+                "--patch-file",
+                str(patch_path),
+                "--out",
+                str(context_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "draft-annotations",
+                "--context",
+                str(context_path),
+                "--output",
+                str(annotations_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "build",
+                "--context",
+                str(context_path),
+                "--annotations",
+                str(annotations_path),
+                "--output",
+                str(html_path),
+                "--keep-inputs",
+            ]
+        )
+        == 0
+    )
+
+    assert context_path.exists()
+    assert annotations_path.exists()
+    rendered = html_path.read_text(encoding="utf-8")
+    assert "prereview-embedded-data" in rendered
+
+
+def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_path = tmp_path / "change.patch"
+    context_path = tmp_path / "review-context.json"
+    annotations_path = tmp_path / "annotations.json"
+
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert (
+        main(
+            [
+                "prepare-context",
+                "--patch-file",
+                str(patch_path),
+                "--out",
+                str(context_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "draft-annotations",
+                "--context",
+                str(context_path),
+                "--output",
+                str(annotations_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "build",
+                "--context",
+                str(context_path),
+                "--annotations",
+                str(annotations_path),
+            ]
+        )
+        == 0
+    )
+
+    assert (tmp_path / "review.html").exists()
 
 
 def test_recompute_runtime_excludes_nested_paths() -> None:

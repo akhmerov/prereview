@@ -97,10 +97,27 @@ def _build_cmd(args: argparse.Namespace) -> int:
         max_expanded_lines=args.max_expanded_lines,
         collapse_large_hunks=args.collapse_large_hunks,
         allow_split_hunks=args.allow_split_hunks,
+        embedded_data={
+            "context": context,
+            "annotations": annotations,
+            "validation_report": report,
+        },
     )
     write_text(args.output, html)
 
+    consumed_paths: list[Path] = []
+    if not args.keep_inputs:
+        for candidate in {args.context, args.annotations}:
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                continue
+            consumed_paths.append(candidate)
+
     print(f"Built static preview at {args.output}")
+    if consumed_paths:
+        consumed_display = ", ".join(str(path) for path in consumed_paths)
+        print(f"Consumed intermediate artifacts: {consumed_display}")
     return 0
 
 
@@ -161,8 +178,18 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser = subparsers.add_parser("build", help="Build static HTML from context and annotations.")
     build_parser.add_argument("--context", type=Path, required=True, help="Path to review-context JSON.")
     build_parser.add_argument("--annotations", type=Path, required=True, help="Path to annotations JSON.")
-    build_parser.add_argument("--output", type=Path, default=Path("prereview.html"), help="Output HTML file path.")
+    build_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("review.html"),
+        help="Output HTML file path at repository root by default.",
+    )
     build_parser.add_argument("--title", default="Prereview Report", help="Report title.")
+    build_parser.add_argument(
+        "--keep-inputs",
+        action="store_true",
+        help="Do not delete context and annotations JSON files after build.",
+    )
     build_parser.add_argument(
         "--max-expanded-lines",
         type=int,

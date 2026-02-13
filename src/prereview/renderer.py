@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 from typing import Any
 
 
@@ -10,6 +11,11 @@ def _esc(value: Any) -> str:
 
 def _line_number(value: Any) -> str:
     return "" if value is None else str(value)
+
+
+def _json_for_html_script(payload: Any) -> str:
+    # Avoid closing script tags from embedded JSON text.
+    return json.dumps(payload, sort_keys=True).replace("</", "<\\/")
 
 
 def _comment_range(comment: dict[str, Any]) -> tuple[int | None, int | None]:
@@ -88,6 +94,7 @@ def render_html(
     max_expanded_lines: int,
     collapse_large_hunks: bool,
     allow_split_hunks: bool,
+    embedded_data: dict[str, Any] | None = None,
 ) -> str:
     prepared_stats = prepared.get("stats", {})
     validation_stats = validation_report.get("stats", {})
@@ -428,6 +435,10 @@ header {
 
     html_chunks.append("</section>")
     html_chunks.append("</main>")
+    if embedded_data is not None:
+        html_chunks.append("<script id='prereview-embedded-data' type='application/json'>")
+        html_chunks.append(_json_for_html_script(embedded_data))
+        html_chunks.append("</script>")
     html_chunks.append("</body>")
     html_chunks.append("</html>")
     return "\n".join(html_chunks)

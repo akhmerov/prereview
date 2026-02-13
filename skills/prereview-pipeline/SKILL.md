@@ -17,11 +17,16 @@ Use this workflow when the task is to generate local rich previews from agent-ge
 
 1. Run `prereview prepare-context --out review-context.json`.
 2. Read `review-context.json` and author `annotations.json`.
-3. Run `prereview validate-annotations --context review-context.json --annotations annotations.json --report validation-report.json`.
+3. Run `prereview validate-annotations --context review-context.json --annotations annotations.json`.
 4. If validation fails, fix `annotations.json` and re-run validation.
-5. Run `prereview build --context review-context.json --annotations annotations.json --output prereview.html`.
+5. Run `prereview build --context review-context.json --annotations annotations.json --output review.html`.
 
 Never skip validation when annotations are edited.
+Default review target is `review.html` at repository root so the user can open it directly.
+Override the target only when the user explicitly asks for a different path (`--output PATH`).
+Build consumes `review-context.json` and `annotations.json` by default (to minimize clutter) and embeds their data in `review.html`.
+Use `--keep-inputs` only when the user explicitly asks to retain intermediate JSON files.
+Only write `--report validation-report.json` when the user explicitly asks for a machine-readable validation artifact.
 
 ## Input source selection
 
