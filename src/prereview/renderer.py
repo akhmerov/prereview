@@ -13,6 +13,40 @@ def _line_number(value: Any) -> str:
     return "" if value is None else str(value)
 
 
+def _hunk_range(start: Any, count: Any, prefix: str) -> str:
+    if not isinstance(start, int):
+        return "?"
+    span = count if isinstance(count, int) else 1
+    if span < 1:
+        span = 1
+    end = start + span - 1
+    if end == start:
+        return f"{prefix}{start}"
+    return f"{prefix}{start}-{end}"
+
+
+def _normalize_file_summary(path: str, summary: Any) -> str | None:
+    if not isinstance(summary, str):
+        return None
+    text = summary.strip()
+    if not text:
+        return None
+
+    candidates = [path, path.split("/")[-1]]
+    lower_text = text.lower()
+    for candidate in candidates:
+        token = candidate.strip()
+        if not token:
+            continue
+        lower_token = token.lower()
+        if lower_text == lower_token:
+            return None
+        if lower_text.startswith(lower_token):
+            remainder = text[len(token) :].lstrip(" \t:-|—–")
+            return remainder or None
+    return text
+
+
 def _json_for_html_script(payload: Any) -> str:
     # Avoid closing script tags from embedded JSON text.
     return json.dumps(payload, sort_keys=True).replace("</", "<\\/")
@@ -97,11 +131,8 @@ def render_html(
     embedded_data: dict[str, Any] | None = None,
 ) -> str:
     prepared_stats = prepared.get("stats", {})
-    validation_stats = validation_report.get("stats", {})
     files = prepared.get("files", [])
     overview = annotations.get("overview", [])
-    mapped_count = validation_stats.get("mapped_comments", validation_stats.get("mapped_anchors", 0))
-    unmapped_count = validation_stats.get("unmapped_comments", validation_stats.get("unmapped_anchors", 0))
 
     file_annotations: dict[str, dict[str, Any]] = {}
     for file_annotation in annotations.get("files", []):
@@ -154,17 +185,10 @@ header {
   padding: 1rem;
   margin-bottom: 1rem;
 }
-.metrics {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.metric {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  min-width: 140px;
+.headline-stats {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--subtle);
 }
 .overview {
   margin-top: 0.85rem;
@@ -183,32 +207,42 @@ header {
 }
 .files {
   display: grid;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 .file {
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid #c4d2e2;
+  border-radius: 14px;
   overflow: hidden;
+  box-shadow: 0 3px 10px rgba(17, 36, 56, 0.06);
 }
 .file-header {
-  padding: 0.9rem;
+  padding: 0.95rem;
   border-bottom: 1px solid var(--border);
-  background: #fbfdff;
+  background: linear-gradient(180deg, #fcfeff, #f2f7fc);
 }
-.file-path {
+.file-dir {
   font-family: "IBM Plex Mono", "Consolas", monospace;
-  font-size: 0.95rem;
+  font-size: 0.76rem;
+  color: #597087;
+  margin-bottom: 0.2rem;
 }
-.breadcrumbs {
-  font-size: 0.8rem;
-  color: var(--subtle);
-  margin-bottom: 0.35rem;
+.file-name {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 .summary {
-  color: var(--subtle);
-  margin-top: 0.4rem;
-  font-size: 0.9rem;
+  color: #4f3206;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  border: 1px solid #e6d8b8;
+  border-top: 3px solid #be8b33;
+  background: #fff8ea;
+  border-radius: 8px;
+  padding: 0.48rem 0.66rem;
 }
 .status {
   float: right;
@@ -226,17 +260,31 @@ header {
   cursor: pointer;
   font-family: "IBM Plex Mono", "Consolas", monospace;
   background: #f7faff;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: baseline;
+}
+.hunk-summary-meta {
+  font-size: 0.75rem;
+  color: var(--subtle);
 }
 .hunk-notes {
-  margin: 0.7rem 0.8rem;
-  border-left: 4px solid #a9bbd1;
-  background: #f5f9ff;
+  margin: 0.5rem 0.65rem 0.35rem;
+  border-left: 5px solid #5f89bf;
+  background: #edf5ff;
   padding: 0.5rem 0.7rem;
   border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #d2e0f0;
 }
-.hunk-notes h4 {
-  margin: 0 0 0.3rem;
-  font-size: 0.92rem;
+.hunk-notes div {
+  font-size: 0.9rem;
+  color: #132536;
+}
+.diff-scroll {
+  max-height: min(70vh, 44rem);
+  overflow-y: auto;
+  overflow-x: auto;
 }
 .diff-table {
   width: 100%;
@@ -258,9 +306,11 @@ header {
   width: 1ch;
 }
 .diff-table .num {
-  width: 3rem;
+  width: 2.2rem;
   text-align: right;
-  color: var(--subtle);
+  color: #8ea0b1;
+  font-size: 0.72rem;
+  font-weight: 400;
   user-select: none;
 }
 .line-add td { background: var(--add-bg); color: var(--add-ink); }
@@ -279,10 +329,16 @@ header {
   margin-top: 0.2rem;
 }
 .comment-meta {
-  font-size: 0.75rem;
-  opacity: 0.85;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.95;
   margin-bottom: 0.2rem;
 }
+.comment-severity-warning { color: #8f4b08; }
+.comment-severity-risk { color: #7a1d1d; }
+.comment-severity-note,
+.comment-severity-info { color: #5b4a13; }
 .validation {
   margin-top: 0.8rem;
   border: 1px solid var(--border);
@@ -306,13 +362,14 @@ header {
     html_chunks.append("<main>")
     html_chunks.append("<header>")
     html_chunks.append(f"<h1>{_esc(title)}</h1>")
-    html_chunks.append("<div class='metrics'>")
-    html_chunks.append(f"<div class='metric'><strong>Files</strong><div>{_esc(prepared_stats.get('files_changed', 0))}</div></div>")
-    html_chunks.append(f"<div class='metric'><strong>Additions</strong><div>{_esc(prepared_stats.get('additions', 0))}</div></div>")
-    html_chunks.append(f"<div class='metric'><strong>Deletions</strong><div>{_esc(prepared_stats.get('deletions', 0))}</div></div>")
-    html_chunks.append(f"<div class='metric'><strong>Mapped notes</strong><div>{_esc(mapped_count)}</div></div>")
-    html_chunks.append(f"<div class='metric'><strong>Unmapped notes</strong><div>{_esc(unmapped_count)}</div></div>")
-    html_chunks.append("</div>")
+    html_chunks.append(
+        "<p class='headline-stats'>"
+        f"{_esc(prepared_stats.get('files_changed', 0))} files "
+        f"· +{_esc(prepared_stats.get('additions', 0))} "
+        f"· -{_esc(prepared_stats.get('deletions', 0))}"
+        f" · {error_count} errors, {warning_count} warnings"
+        "</p>"
+    )
 
     overview_lines = []
     if isinstance(overview, list):
@@ -348,17 +405,18 @@ header {
             continue
         path = str(file_entry.get("path", "unknown"))
         file_annotation = file_annotations.get(path, {})
-        breadcrumbs = file_annotation.get("breadcrumbs")
-        if not isinstance(breadcrumbs, list) or not breadcrumbs:
-            breadcrumbs = path.split("/")
+        path_parts = [part for part in path.split("/") if part]
+        file_name = path_parts[-1] if path_parts else path
+        file_dir = "/".join(path_parts[:-1])
 
         html_chunks.append("<article class='file'>")
         html_chunks.append("<div class='file-header'>")
         html_chunks.append(f"<span class='status'>{_esc(file_entry.get('status', 'modified'))}</span>")
-        html_chunks.append(f"<div class='breadcrumbs'>{' / '.join(_esc(p) for p in breadcrumbs)}</div>")
-        html_chunks.append(f"<div class='file-path'>{_esc(path)}</div>")
-        summary_text = file_annotation.get("summary")
-        if isinstance(summary_text, str) and summary_text.strip():
+        if file_dir:
+            html_chunks.append(f"<div class='file-dir'>{_esc(file_dir)}/</div>")
+        html_chunks.append(f"<div class='file-name'>{_esc(file_name)}</div>")
+        summary_text = _normalize_file_summary(path, file_annotation.get("summary"))
+        if summary_text:
             html_chunks.append(f"<div class='summary'>{_esc(summary_text)}</div>")
         html_chunks.append("</div>")
 
@@ -371,27 +429,43 @@ header {
         for hunk in file_entry.get("hunks", []):
             if not isinstance(hunk, dict):
                 continue
+            hunk_annotations = _hunk_annotations(file_annotation, hunk, allow_split_hunks)
             lines = hunk.get("lines", [])
             collapsed = bool(collapse_large_hunks and isinstance(lines, list) and len(lines) > max_expanded_lines)
+            added_lines = sum(
+                1
+                for line in (lines if isinstance(lines, list) else [])
+                if isinstance(line, dict) and line.get("type") == "add"
+            )
+            removed_lines = sum(
+                1
+                for line in (lines if isinstance(lines, list) else [])
+                if isinstance(line, dict) and line.get("type") == "del"
+            )
+            new_range = _hunk_range(hunk.get("new_start"), hunk.get("new_count"), "+")
+            old_range = _hunk_range(hunk.get("old_start"), hunk.get("old_count"), "-")
+            summary_label = f"Change {new_range} (from {old_range})"
+            for hunk_annotation in hunk_annotations:
+                title_text = hunk_annotation.get("title")
+                if isinstance(title_text, str) and title_text.strip():
+                    summary_label = title_text.strip()
+                    break
 
             details_open = "" if collapsed else " open"
-            hunk_header = hunk.get("header") or ""
             html_chunks.append(f"<details class='hunk'{details_open}>")
             html_chunks.append(
-                f"<summary>@@ -{_esc(hunk.get('old_start', 0))} +{_esc(hunk.get('new_start', 0))} @@ {_esc(hunk_header)}</summary>"
+                f"<summary><span>{_esc(summary_label)}</span>"
+                f"<span class='hunk-summary-meta'>+{added_lines} / -{removed_lines}</span></summary>"
             )
 
-            for hunk_annotation in _hunk_annotations(file_annotation, hunk, allow_split_hunks):
+            for hunk_annotation in hunk_annotations:
                 explanation = hunk_annotation.get("explanation")
-                title_text = hunk_annotation.get("title")
-                if isinstance(explanation, str) and explanation.strip() or isinstance(title_text, str) and title_text.strip():
+                if isinstance(explanation, str) and explanation.strip():
                     html_chunks.append("<section class='hunk-notes'>")
-                    if isinstance(title_text, str) and title_text.strip():
-                        html_chunks.append(f"<h4>{_esc(title_text)}</h4>")
-                    if isinstance(explanation, str) and explanation.strip():
-                        html_chunks.append(f"<div>{_esc(explanation)}</div>")
+                    html_chunks.append(f"<div>{_esc(explanation)}</div>")
                     html_chunks.append("</section>")
 
+            html_chunks.append("<div class='diff-scroll'>")
             html_chunks.append("<table class='diff-table'>")
             for line in lines if isinstance(lines, list) else []:
                 if not isinstance(line, dict):
@@ -416,19 +490,16 @@ header {
                 new_line = line.get("new_line")
                 if isinstance(new_line, int) and new_line in comments_by_line:
                     for comment in comments_by_line[new_line]:
-                        start, end = _comment_range(comment)
-                        label = f"L{start}" if start == end else f"L{start}-L{end}"
-                        severity = str(comment.get("severity", "info"))
-                        author = str(comment.get("author", "agent"))
-                        source = str(comment.get("_source", "file"))
+                        severity = str(comment.get("severity", "info")).strip().lower() or "info"
                         text = _esc(comment.get("text", ""))
                         html_chunks.append(
                             "<tr class='comment-row'><td colspan='3'>"
-                            f"<div class='comment'><div class='comment-meta'>{_esc(severity)} | {_esc(source)} | {_esc(author)} | {_esc(label)}</div>"
+                            f"<div class='comment'><div class='comment-meta comment-severity-{_esc(severity)}'>{_esc(severity)}</div>"
                             f"<div>{text}</div></div></td></tr>"
                         )
 
             html_chunks.append("</table>")
+            html_chunks.append("</div>")
             html_chunks.append("</details>")
 
         html_chunks.append("</article>")

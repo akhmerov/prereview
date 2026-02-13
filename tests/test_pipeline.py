@@ -239,6 +239,102 @@ def test_render_preserves_indentation() -> None:
     assert "white-space: pre;" in html
     assert "class='code'" in html
     assert "<span class='diff-prefix'>+</span>    message = &quot;hi&quot;" in html
+    assert "class='headline-stats'" in html
+    assert "Mapped notes" not in html
+    assert "Unmapped notes" not in html
+    assert "class='diff-scroll'" in html
+    assert "overflow-y: auto;" in html
+    assert "width: 2.2rem;" in html
+    assert "width: 3rem;" not in html
+
+
+def test_render_line_note_meta_shows_severity_only() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    annotations["files"][0]["anchors"][0]["severity"] = "warning"
+    annotations["files"][0]["anchors"][0]["reviewer_focus"] = "Check behavior."
+
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="Line meta",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "<h4>" not in html
+    assert "class='comment-meta comment-severity-warning'>warning</div>" in html
+    assert " | hunk | " not in html
+    assert " | prereview | " not in html
+    assert " | L" not in html
+
+
+def test_render_uses_readable_hunk_summary_label() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="Hunk summary",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "<summary><span>Change focus</span>" in html
+    assert "+2 / -1" in html
+    assert "Change +1-3 (from -1-2)" not in html
+    assert "@@ -1 +1 @@" not in html
+
+
+def test_render_summary_deduplicates_filename_prefix() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    path = str(annotations["files"][0]["path"])
+    annotations["files"][0]["summary"] = f"{path}: Focused update for greeting behavior."
+
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="Summary dedupe",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "Focused update for greeting behavior." in html
+    assert f"{path}: Focused update for greeting behavior." not in html
+    assert "class='file-name'>demo.py</div>" in html
+    assert "class='file-dir'>src/</div>" in html
+    assert "class='file-path'" not in html
 
 
 def test_cli_context_pipeline(tmp_path: Path) -> None:
