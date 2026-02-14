@@ -147,9 +147,42 @@ header {
   box-shadow: 0 3px 10px rgba(17, 36, 56, 0.06);
 }
 .file-header {
+  list-style: none;
   padding: 0.95rem;
-  border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, #fcfeff, #f2f7fc);
+  cursor: pointer;
+}
+.file-header::-webkit-details-marker {
+  display: none;
+}
+.file-header::marker {
+  content: "";
+}
+.file-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.file-toggle {
+  margin-top: 0.16rem;
+  color: #3f6285;
+  font-size: 0.8rem;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 130ms ease;
+}
+.file:not([open]) > .file-header .file-toggle {
+  transform: rotate(-90deg);
+}
+.file-path {
+  flex: 1;
+  min-width: 0;
+}
+.file[open] > .file-header {
+  border-bottom: 1px solid var(--border);
+}
+.file-body > .hunk:first-child {
+  border-top: none;
 }
 .file-dir {
   font-family: "IBM Plex Mono", "Consolas", monospace;
@@ -175,12 +208,13 @@ header {
   padding: 0.48rem 0.66rem;
 }
 .status {
-  float: right;
+  margin-left: auto;
   font-size: 0.8rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.1rem 0.5rem;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .hunk {
   border-top: 1px solid var(--border);
@@ -316,13 +350,19 @@ header {
 </header>
 <section class='files'>
 {% for file in files_render %}
-<article class='file toc-target' id='{{ file.anchor_id }}' data-toc-id='{{ file.anchor_id }}'>
-<div class='file-header'>
-<span class='status'>{{ file.status }}</span>
+<details class='file toc-target' id='{{ file.anchor_id }}' data-toc-id='{{ file.anchor_id }}' open>
+<summary class='file-header'>
+<div class='file-title-row'>
+<span class='file-toggle' aria-hidden='true'>▾</span>
+<div class='file-path'>
 {% if file.file_dir %}<div class='file-dir'>{{ file.file_dir }}/</div>{% endif %}
 <div class='file-name'>{{ file.file_name }}</div>
-{% if file.summary_text %}<div class='summary'>{{ file.summary_text }}</div>{% endif %}
 </div>
+<span class='status'>{{ file.status }}</span>
+</div>
+{% if file.summary_text %}<div class='summary'>{{ file.summary_text }}</div>{% endif %}
+</summary>
+<div class='file-body'>
 {% if file.is_binary %}
 <div class='summary' style='padding:0.8rem;'>Binary file changed.</div>
 {% else %}
@@ -346,7 +386,8 @@ header {
 </details>
 {% endfor %}
 {% endif %}
-</article>
+</div>
+</details>
 {% endfor %}
 </section>
 </div>
@@ -398,9 +439,10 @@ header {
       if (target.tagName === "DETAILS") {
         target.open = true;
       }
-      const parent = target.closest("details");
-      if (parent) {
+      let parent = target.parentElement ? target.parentElement.closest("details") : null;
+      while (parent) {
         parent.open = true;
+        parent = parent.parentElement ? parent.parentElement.closest("details") : null;
       }
     });
   }

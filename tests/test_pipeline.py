@@ -334,7 +334,6 @@ def test_render_summary_deduplicates_filename_prefix() -> None:
     assert f"{path}: Focused update for greeting behavior." not in html
     assert "class='file-name'>demo.py</div>" in html
     assert "class='file-dir'>src/</div>" in html
-    assert "class='file-path'" not in html
 
 
 def test_render_includes_toc_with_file_and_hunk_links() -> None:
@@ -365,6 +364,33 @@ def test_render_includes_toc_with_file_and_hunk_links() -> None:
     assert "data-toc-link='file-1-hunk-1'" in html
     assert "class='toc-link toc-hunk-link'" in html
     assert "classList.toggle(\"is-active\"" in html
+
+
+def test_render_file_sections_are_collapsible_from_header() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="File collapse",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "<details class='file toc-target'" in html
+    assert "<summary class='file-header'>" in html
+    assert "class='file-toggle'" in html
+    assert "parent.parentElement.closest(\"details\")" in html
 
 
 def test_cli_context_pipeline(tmp_path: Path) -> None:
