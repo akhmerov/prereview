@@ -409,7 +409,7 @@ packages:
 - pypi: ./
   name: prereview
   version: 0.1.0
-  sha256: 053ae31a8a90628957a19b3dbdf6df4e70a2b52000274571b7960c26a7b47a42
+  sha256: 3d8492f3b4214a37c625c88899b60a6d3fc2ef88d9dd273c8432c4e7aae6c1db
   requires_dist:
   - jinja2>=3.1,<4
   requires_python: '>=3.11'

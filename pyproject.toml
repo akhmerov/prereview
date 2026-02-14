@@ -1,6 +1,8 @@
 [project]
 authors = [{name = "Anton Akhmerov", email = "anton.akhmerov@gmail.com"}]
+classifiers = ["License :: OSI Approved :: BSD License"]
 dependencies = ["jinja2>=3.1,<4"]
+license = {file = "LICENSE"}
 name = "prereview"
 requires-python = ">= 3.11"
 version = "0.1.0"
