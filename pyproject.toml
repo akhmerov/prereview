@@ -42,4 +42,4 @@ python = ">=3.11,<3.14"
 
 [tool.pixi.tasks]
 test = "pytest -q"
-build-conda = "pixi build"
+build-conda = "rm -rf .pixi/build/work && pixi build --clean"
