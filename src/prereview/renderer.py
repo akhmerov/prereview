@@ -168,7 +168,7 @@ def render_html(
     issues_extra_count = max(len(issues) - 25, 0)
 
     files_render: list[dict[str, Any]] = []
-    for file_entry in files:
+    for file_index, file_entry in enumerate(files, start=1):
         if not isinstance(file_entry, dict):
             continue
 
@@ -179,7 +179,10 @@ def render_html(
         file_name = path_parts[-1] if path_parts else path
         file_dir = "/".join(path_parts[:-1])
 
+        file_anchor_id = f"file-{file_index}"
         file_view: dict[str, Any] = {
+            "anchor_id": file_anchor_id,
+            "toc_label": path,
             "status": str(file_entry.get("status", "modified")),
             "file_dir": file_dir,
             "file_name": file_name,
@@ -193,7 +196,7 @@ def render_html(
             continue
 
         comments_by_line = _comments_by_line(file_annotation)
-        for hunk in file_entry.get("hunks", []):
+        for hunk_index, hunk in enumerate(file_entry.get("hunks", []), start=1):
             if not isinstance(hunk, dict):
                 continue
 
@@ -269,6 +272,7 @@ def render_html(
 
             file_view["hunks"].append(
                 {
+                    "anchor_id": f"{file_anchor_id}-hunk-{hunk_index}",
                     "is_open": is_open,
                     "summary_label": summary_label,
                     "added_lines": added_lines,

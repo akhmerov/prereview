@@ -337,6 +337,36 @@ def test_render_summary_deduplicates_filename_prefix() -> None:
     assert "class='file-path'" not in html
 
 
+def test_render_includes_toc_with_file_and_hunk_links() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="TOC",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "class='toc'" in html
+    assert "aria-label='Table of contents'" in html
+    assert "href='#file-1'" in html
+    assert "href='#file-1-hunk-1'" in html
+    assert "data-toc-link='file-1-hunk-1'" in html
+    assert "class='toc-link toc-hunk-link'" in html
+    assert "classList.toggle(\"is-active\"" in html
+
+
 def test_cli_context_pipeline(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"

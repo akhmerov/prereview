@@ -26,9 +26,18 @@ body {
   background: radial-gradient(circle at 15% 15%, #ffffff, var(--bg) 45%, #e9eef4);
 }
 main {
-  max-width: 1100px;
+  max-width: 1360px;
   margin: 0 auto;
   padding: 1.25rem;
+}
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18.5rem;
+  gap: 1.25rem;
+  align-items: start;
+}
+.content {
+  min-width: 0;
 }
 header {
   background: linear-gradient(125deg, #fefefe, #e7eef7);
@@ -57,9 +66,78 @@ header {
   margin: 0.35rem 0 0;
   padding-left: 1.15rem;
 }
+.validation {
+  margin-top: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.6rem 0.8rem;
+}
+.validation ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+.toc {
+  position: sticky;
+  top: 0.9rem;
+  max-height: calc(100vh - 1.8rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.72rem;
+  background: linear-gradient(180deg, #ffffff, #f5f8fc);
+  box-shadow: 0 3px 9px rgba(17, 36, 56, 0.06);
+}
+.toc-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #57708a;
+}
+.toc-list,
+.toc-sublist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.toc-item + .toc-item {
+  margin-top: 0.4rem;
+}
+.toc-sublist {
+  margin-top: 0.2rem;
+}
+.toc-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.18rem 0.35rem;
+}
+.toc-file-link {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  color: #173452;
+  word-break: break-word;
+}
+.toc-hunk-link {
+  margin-left: 0.6rem;
+  font-size: 0.77rem;
+  color: #45607a;
+}
+.toc-link.is-active {
+  background: #e7f0fb;
+  border-color: #b0c3d8;
+  color: #0f2b46;
+  font-weight: 600;
+}
 .files {
   display: grid;
   gap: 1.25rem;
+}
+.toc-target {
+  scroll-margin-top: 0.95rem;
 }
 .file {
   background: var(--panel);
@@ -191,16 +269,14 @@ header {
 .comment-severity-risk { color: #7a1d1d; }
 .comment-severity-note,
 .comment-severity-info { color: #5b4a13; }
-.validation {
-  margin-top: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
-  padding: 0.6rem 0.8rem;
-}
-.validation ul {
-  margin: 0.35rem 0 0;
-  padding-left: 1.1rem;
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .toc {
+    position: static;
+    max-height: none;
+  }
 }
 @media (max-width: 700px) {
   main { padding: 0.8rem; }
@@ -210,6 +286,8 @@ header {
 </head>
 <body>
 <main>
+<div class='layout'>
+<div class='content'>
 <header>
 <h1>{{ title }}</h1>
 <p class='headline-stats'>{{ files_changed }} files · +{{ additions }} · -{{ deletions }} · {{ error_count }} errors, {{ warning_count }} warnings</p>
@@ -238,7 +316,7 @@ header {
 </header>
 <section class='files'>
 {% for file in files_render %}
-<article class='file'>
+<article class='file toc-target' id='{{ file.anchor_id }}' data-toc-id='{{ file.anchor_id }}'>
 <div class='file-header'>
 <span class='status'>{{ file.status }}</span>
 {% if file.file_dir %}<div class='file-dir'>{{ file.file_dir }}/</div>{% endif %}
@@ -249,7 +327,7 @@ header {
 <div class='summary' style='padding:0.8rem;'>Binary file changed.</div>
 {% else %}
 {% for hunk in file.hunks %}
-<details class='hunk'{% if hunk.is_open %} open{% endif %}>
+<details class='hunk toc-target' id='{{ hunk.anchor_id }}' data-toc-id='{{ hunk.anchor_id }}'{% if hunk.is_open %} open{% endif %}>
 <summary><span>{{ hunk.summary_label }}</span><span class='hunk-summary-meta'>+{{ hunk.added_lines }} / -{{ hunk.removed_lines }}</span></summary>
 {% for note in hunk.notes %}
 <section class='hunk-notes'><div>{{ note.explanation }}</div></section>
@@ -271,9 +349,102 @@ header {
 </article>
 {% endfor %}
 </section>
+</div>
+{% if files_render %}
+<aside class='toc' aria-label='Table of contents'>
+<h2 class='toc-title'>Contents</h2>
+<ul class='toc-list'>
+{% for file in files_render %}
+<li class='toc-item'>
+<a class='toc-link toc-file-link' href='#{{ file.anchor_id }}' data-toc-link='{{ file.anchor_id }}'>{{ file.toc_label }}</a>
+{% if file.hunks %}
+<ul class='toc-sublist'>
+{% for hunk in file.hunks %}
+<li><a class='toc-link toc-hunk-link' href='#{{ hunk.anchor_id }}' data-toc-link='{{ hunk.anchor_id }}'>{{ hunk.summary_label }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+</aside>
+{% endif %}
+</div>
 </main>
 {% if embedded_json is not none %}
 <script id='prereview-embedded-data' type='application/json'>{{ embedded_json | safe }}</script>
+{% endif %}
+{% if files_render %}
+<script>
+(() => {
+  const links = Array.from(document.querySelectorAll("[data-toc-link]"));
+  const targets = Array.from(document.querySelectorAll("[data-toc-id]"));
+  if (!links.length || !targets.length) {
+    return;
+  }
+
+  const linkById = new Map();
+  for (const link of links) {
+    const id = link.getAttribute("data-toc-link");
+    if (!id) {
+      continue;
+    }
+    linkById.set(id, link);
+    link.addEventListener("click", () => {
+      const target = document.getElementById(id);
+      if (!target) {
+        return;
+      }
+      if (target.tagName === "DETAILS") {
+        target.open = true;
+      }
+      const parent = target.closest("details");
+      if (parent) {
+        parent.open = true;
+      }
+    });
+  }
+
+  const activate = (id) => {
+    if (!id) {
+      return;
+    }
+    for (const [candidate, link] of linkById.entries()) {
+      link.classList.toggle("is-active", candidate === id);
+    }
+  };
+
+  let ticking = false;
+  const updateActive = () => {
+    const marker = window.scrollY + 140;
+    let current = targets[0];
+    for (const target of targets) {
+      if (target.offsetTop <= marker) {
+        current = target;
+      } else {
+        break;
+      }
+    }
+    const activeId = current.getAttribute("data-toc-id");
+    if (activeId) {
+      activate(activeId);
+    }
+    ticking = false;
+  };
+
+  const schedule = () => {
+    if (ticking) {
+      return;
+    }
+    ticking = true;
+    window.requestAnimationFrame(updateActive);
+  };
+
+  window.addEventListener("scroll", schedule, { passive: true });
+  window.addEventListener("resize", schedule);
+  schedule();
+})();
+</script>
 {% endif %}
 </body>
 </html>
