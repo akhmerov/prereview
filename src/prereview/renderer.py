@@ -228,6 +228,17 @@ def render_html(
 
             notes: list[dict[str, str]] = []
             for hunk_annotation in hunk_annotations:
+                note_fields = hunk_annotation.get("note_fields")
+                if isinstance(note_fields, dict):
+                    structured_note: dict[str, str] = {}
+                    for field in ("what_changed", "why_changed", "reviewer_focus", "risk"):
+                        value = note_fields.get(field)
+                        if isinstance(value, str) and value.strip():
+                            structured_note[field] = value.strip()
+                    if structured_note:
+                        notes.append(structured_note)
+                        continue
+
                 explanation = hunk_annotation.get("explanation")
                 if isinstance(explanation, str) and explanation.strip():
                     notes.append({"explanation": explanation.strip()})

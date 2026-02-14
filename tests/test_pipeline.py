@@ -185,8 +185,33 @@ def test_validate_and_materialize_annotations() -> None:
     render_annotations = materialize_annotations_for_render(runtime, annotations)
     assert render_annotations["files"]
     first_hunk = render_annotations["files"][0]["hunks"][0]
+    assert first_hunk["note_fields"]["what_changed"]
+    assert first_hunk["note_fields"]["why_changed"]
     assert "What changed:" in first_hunk["explanation"]
     assert "Why:" in first_hunk["explanation"]
+
+
+def test_materialize_does_not_double_terminal_periods() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    annotations["files"][0]["anchors"][0]["what_changed"] = "Changed greeting flow."
+    annotations["files"][0]["anchors"][0]["why_changed"] = "Keep return path explicit."
+
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    first_hunk = render_annotations["files"][0]["hunks"][0]
+    explanation = first_hunk["explanation"]
+    note_fields = first_hunk["note_fields"]
+
+    assert "What changed: Changed greeting flow." in explanation
+    assert "Why: Keep return path explicit." in explanation
+    assert "flow.." not in explanation
+    assert "explicit.." not in explanation
+    assert note_fields["what_changed"] == "Changed greeting flow."
+    assert note_fields["why_changed"] == "Keep return path explicit."
 
 
 def test_validate_fails_on_unknown_anchor() -> None:
@@ -304,6 +329,32 @@ def test_render_uses_readable_hunk_summary_label() -> None:
     assert "+2 / -1" in html
     assert "Change +1-3 (from -1-2)" not in html
     assert "@@ -1 +1 @@" not in html
+
+
+def test_render_hunk_notes_use_structured_labels() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="Structured notes",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "<strong>What changed:</strong>" in html
+    assert "<strong>Why:</strong>" in html
+    assert "class='hunk-note-row'" in html
 
 
 def test_render_summary_deduplicates_filename_prefix() -> None:

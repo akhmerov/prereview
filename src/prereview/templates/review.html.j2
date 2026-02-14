@@ -241,9 +241,14 @@ header {
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px #d2e0f0;
 }
-.hunk-notes div {
+.hunk-note-row {
+  margin: 0.2rem 0;
   font-size: 0.9rem;
   color: #132536;
+  line-height: 1.4;
+}
+.hunk-note-row strong {
+  color: #102b46;
 }
 .diff-scroll {
   max-height: min(70vh, 44rem);
@@ -370,7 +375,15 @@ header {
 <details class='hunk toc-target' id='{{ hunk.anchor_id }}' data-toc-id='{{ hunk.anchor_id }}'{% if hunk.is_open %} open{% endif %}>
 <summary><span>{{ hunk.summary_label }}</span><span class='hunk-summary-meta'>+{{ hunk.added_lines }} / -{{ hunk.removed_lines }}</span></summary>
 {% for note in hunk.notes %}
-<section class='hunk-notes'><div>{{ note.explanation }}</div></section>
+<section class='hunk-notes'>
+{% if note.what_changed %}<p class='hunk-note-row'><strong>What changed:</strong> {{ note.what_changed }}</p>{% endif %}
+{% if note.why_changed %}<p class='hunk-note-row'><strong>Why:</strong> {{ note.why_changed }}</p>{% endif %}
+{% if note.reviewer_focus %}<p class='hunk-note-row'><strong>Reviewer focus:</strong> {{ note.reviewer_focus }}</p>{% endif %}
+{% if note.risk %}<p class='hunk-note-row'><strong>Risk:</strong> {{ note.risk }}</p>{% endif %}
+{% if note.explanation and not note.what_changed and not note.why_changed and not note.reviewer_focus and not note.risk %}
+<p class='hunk-note-row'>{{ note.explanation }}</p>
+{% endif %}
+</section>
 {% endfor %}
 <div class='diff-scroll'>
 <table class='diff-table'>

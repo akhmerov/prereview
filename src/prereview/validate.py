@@ -11,6 +11,15 @@ def _issue(level: str, code: str, message: str, location: str) -> dict[str, str]
     return {"level": level, "code": code, "message": message, "location": location}
 
 
+def _ensure_terminal_punctuation(text: str) -> str:
+    trimmed = text.strip()
+    if not trimmed:
+        return trimmed
+    if trimmed.endswith(("...", "…", ".", "!", "?")):
+        return trimmed
+    return f"{trimmed}."
+
+
 def evaluate_annotations(
     context: Any,
     annotations: Any,
@@ -190,18 +199,30 @@ def materialize_annotations_for_render(
             risk = str(anchor.get("risk", "")).strip()
             severity = str(anchor.get("severity", "note"))
 
-            explanation_parts = [f"What changed: {what_changed}.", f"Why: {why_changed}."]
+            note_fields = {
+                "what_changed": _ensure_terminal_punctuation(what_changed),
+                "why_changed": _ensure_terminal_punctuation(why_changed),
+            }
             if reviewer_focus:
-                explanation_parts.append(f"Reviewer focus: {reviewer_focus}.")
+                note_fields["reviewer_focus"] = _ensure_terminal_punctuation(reviewer_focus)
             if risk:
-                explanation_parts.append(f"Risk: {risk}.")
+                note_fields["risk"] = _ensure_terminal_punctuation(risk)
 
             hunk_annotation = {
                 "hunk_id": resolved.get("hunk_id"),
                 "new_start": resolved.get("new_start"),
                 "new_end": resolved.get("new_end"),
                 "title": anchor.get("title") or "Review focus",
-                "explanation": " ".join(explanation_parts),
+                "note_fields": note_fields,
+                # Keep legacy flattened explanation for compatibility with older renderers/tests.
+                "explanation": " ".join(
+                    [
+                        f"What changed: {note_fields['what_changed']}",
+                        f"Why: {note_fields['why_changed']}",
+                        *([f"Reviewer focus: {note_fields['reviewer_focus']}"] if "reviewer_focus" in note_fields else []),
+                        *([f"Risk: {note_fields['risk']}"] if "risk" in note_fields else []),
+                    ]
+                ),
                 "comments": [],
             }
 
@@ -210,9 +231,9 @@ def materialize_annotations_for_render(
             if isinstance(anchor_line, int) and severity in {"warning", "risk"}:
                 text_bits = []
                 if reviewer_focus:
-                    text_bits.append(f"Reviewer focus: {reviewer_focus}.")
+                    text_bits.append(f"Reviewer focus: {_ensure_terminal_punctuation(reviewer_focus)}")
                 if risk:
-                    text_bits.append(f"Risk: {risk}.")
+                    text_bits.append(f"Risk: {_ensure_terminal_punctuation(risk)}")
                 if text_bits:
                     hunk_annotation["comments"].append(
                         {
