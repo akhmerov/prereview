@@ -132,6 +132,77 @@ header {
   color: #0f2b46;
   font-weight: 600;
 }
+.reviewer-panel {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.reviewer-hint {
+  margin: 0.15rem 0 0.55rem;
+  color: #4f6479;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.comment-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+.comment-actions button {
+  border: 1px solid #b5c4d5;
+  border-radius: 7px;
+  background: #fff;
+  color: #18334d;
+  font-size: 0.74rem;
+  padding: 0.22rem 0.45rem;
+  cursor: pointer;
+}
+.comment-actions button:hover {
+  background: #edf3fb;
+}
+.copy-status {
+  margin: 0;
+  min-height: 1rem;
+  color: #45607a;
+  font-size: 0.72rem;
+}
+.reviewer-comment-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.05rem;
+}
+.reviewer-empty {
+  color: #5a7086;
+  font-size: 0.78rem;
+}
+.reviewer-comment-item {
+  margin-bottom: 0.55rem;
+}
+.reviewer-comment-meta {
+  color: #38526c;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+.reviewer-comment-text {
+  color: #10273d;
+  margin-top: 0.18rem;
+  font-size: 0.79rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+.reviewer-comment-remove {
+  margin-top: 0.2rem;
+  border: 1px solid #cfdae6;
+  border-radius: 6px;
+  background: #f8fbff;
+  color: #36516b;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.35rem;
+  cursor: pointer;
+}
+.reviewer-comment-remove:hover {
+  background: #edf3fb;
+}
 .files {
   display: grid;
   gap: 1.25rem;
@@ -282,6 +353,61 @@ header {
   font-weight: 400;
   user-select: none;
 }
+.line-row td.num {
+  cursor: pointer;
+}
+.line-row td.num:hover {
+  background: #e9f2fe;
+  color: #33516f;
+}
+.line-row.has-reviewer-comment td.num {
+  color: #14395c;
+  font-weight: 700;
+}
+.reviewer-editor-row td {
+  background: #f5f9ff;
+  padding: 0.38rem 0.5rem 0.5rem;
+}
+.reviewer-editor {
+  border: 1px solid #c8d8ea;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.45rem;
+}
+.reviewer-editor-meta {
+  margin: 0 0 0.3rem;
+  color: #3e5a76;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.7rem;
+}
+.reviewer-editor textarea {
+  width: 100%;
+  min-height: 4.25rem;
+  border: 1px solid #bdd0e5;
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-size: 0.86rem;
+  color: #17324c;
+  resize: vertical;
+}
+.reviewer-editor-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.reviewer-editor-actions button {
+  border: 1px solid #b8c8da;
+  border-radius: 6px;
+  background: #fff;
+  color: #1b3a57;
+  font-size: 0.74rem;
+  padding: 0.18rem 0.45rem;
+  cursor: pointer;
+}
+.reviewer-editor-actions button:hover {
+  background: #edf3fb;
+}
 .line-add td { background: var(--add-bg); color: var(--add-ink); }
 .line-del td { background: var(--del-bg); color: var(--del-ink); }
 .comment-row td {
@@ -355,7 +481,7 @@ header {
 </header>
 <section class='files'>
 {% for file in files_render %}
-<details class='file toc-target' id='{{ file.anchor_id }}' data-toc-id='{{ file.anchor_id }}' open>
+<details class='file toc-target' id='{{ file.anchor_id }}' data-toc-id='{{ file.anchor_id }}' data-file-path='{{ file.path }}' open>
 <summary class='file-header'>
 <div class='file-title-row'>
 <span class='file-toggle' aria-hidden='true'>▾</span>
@@ -372,7 +498,7 @@ header {
 <div class='summary' style='padding:0.8rem;'>Binary file changed.</div>
 {% else %}
 {% for hunk in file.hunks %}
-<details class='hunk toc-target' id='{{ hunk.anchor_id }}' data-toc-id='{{ hunk.anchor_id }}'{% if hunk.is_open %} open{% endif %}>
+<details class='hunk toc-target' id='{{ hunk.anchor_id }}' data-toc-id='{{ hunk.anchor_id }}' data-file-path='{{ file.path }}' data-hunk-id='{{ hunk.hunk_id }}' data-hunk-new-start='{{ hunk.new_start if hunk.new_start is not none else "" }}' data-hunk-new-end='{{ hunk.new_end if hunk.new_end is not none else "" }}'{% if hunk.is_open %} open{% endif %}>
 <summary><span>{{ hunk.summary_label }}</span><span class='hunk-summary-meta'>+{{ hunk.added_lines }} / -{{ hunk.removed_lines }}</span></summary>
 {% for note in hunk.notes %}
 <section class='hunk-notes'>
@@ -389,7 +515,7 @@ header {
 <table class='diff-table'>
 {% for row in hunk.rows %}
 {% if row.kind == 'line' %}
-<tr class='{{ row.class_name }}'><td class='num'>{{ row.old_no }}</td><td class='num'>{{ row.new_no }}</td><td class='code'><span class='diff-prefix'>{{ row.symbol }}</span>{{ row.content | safe }}</td></tr>
+<tr class='{{ row.class_name }} line-row' data-comment-trigger='line' data-file-path='{{ file.path }}' data-hunk-id='{{ hunk.hunk_id }}' data-hunk-anchor='{{ hunk.anchor_id }}' data-old-line='{{ row.old_line if row.old_line is not none else "" }}' data-new-line='{{ row.new_line if row.new_line is not none else "" }}' data-line-symbol='{{ row.symbol }}' data-line-content='{{ row.raw_content }}' data-location-key='{{ file.path }}::{{ hunk.hunk_id }}::{{ row.old_line if row.old_line is not none else "" }}::{{ row.new_line if row.new_line is not none else "" }}'><td class='num'>{{ row.old_no }}</td><td class='num'>{{ row.new_no }}</td><td class='code'><span class='diff-prefix'>{{ row.symbol }}</span>{{ row.content | safe }}</td></tr>
 {% else %}
 <tr class='comment-row'><td colspan='3'><div class='comment'><div class='comment-meta comment-severity-{{ row.severity }}'>{{ row.severity }}</div><div>{{ row.text }}</div></div></td></tr>
 {% endif %}
@@ -421,6 +547,16 @@ header {
 </li>
 {% endfor %}
 </ul>
+<section class='reviewer-panel'>
+<h2 class='toc-title'>Reviewer Comments</h2>
+<p class='reviewer-hint'>Click a line number in the diff to add a reviewer comment.</p>
+<div class='comment-actions'>
+<button type='button' id='copy-agent-prompt'>Copy Agent Prompt</button>
+<button type='button' id='clear-reviewer-comments'>Clear</button>
+</div>
+<p id='copy-status' class='copy-status' role='status' aria-live='polite'></p>
+<ol id='reviewer-comment-list' class='reviewer-comment-list'></ol>
+</section>
 </aside>
 {% endif %}
 </div>
@@ -436,6 +572,295 @@ header {
   if (!links.length || !targets.length) {
     return;
   }
+
+  const embeddedNode = document.getElementById("prereview-embedded-data");
+  let embeddedData = {};
+  if (embeddedNode) {
+    try {
+      embeddedData = JSON.parse(embeddedNode.textContent || "{}");
+    } catch (_error) {
+      embeddedData = {};
+    }
+  }
+
+  const context = embeddedData && typeof embeddedData === "object" && embeddedData.context && typeof embeddedData.context === "object"
+    ? embeddedData.context
+    : {};
+  const targetContextId = typeof context.context_id === "string" ? context.context_id : "";
+  const diffFingerprint = typeof context.diff_fingerprint === "string" ? context.diff_fingerprint : "";
+  const storageKey = targetContextId && diffFingerprint
+    ? `prereview-reviewer-comments:${targetContextId}:${diffFingerprint}`
+    : null;
+
+  const commentList = document.getElementById("reviewer-comment-list");
+  const copyButton = document.getElementById("copy-agent-prompt");
+  const clearButton = document.getElementById("clear-reviewer-comments");
+  const copyStatus = document.getElementById("copy-status");
+  const lineRows = Array.from(document.querySelectorAll("tr.line-row[data-location-key]"));
+
+  let reviewerComments = [];
+  let activeEditorRow = null;
+
+  if (storageKey) {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        reviewerComments = parsed.filter((comment) => comment && typeof comment === "object" && typeof comment.text === "string");
+      }
+    } catch (_error) {
+      reviewerComments = [];
+    }
+  }
+
+  const persistComments = () => {
+    if (!storageKey) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(reviewerComments));
+    } catch (_error) {
+      // Ignore local storage failures and keep comments in-memory.
+    }
+  };
+
+  const setStatus = (text) => {
+    if (copyStatus) {
+      copyStatus.textContent = text;
+    }
+  };
+
+  const lineReference = (comment) => {
+    const filePath = comment.file_path || "<unknown-file>";
+    const newLine = comment.new_line || "-";
+    const oldLine = comment.old_line || "-";
+    return `${filePath} (new:${newLine}, old:${oldLine})`;
+  };
+
+  const buildAgentPrompt = () => {
+    const lines = [
+      "Address all of the following comments one by one.",
+      "",
+    ];
+
+    reviewerComments.forEach((comment, index) => {
+      lines.push(`${index + 1}. ${lineReference(comment)}`);
+      if (comment.excerpt) {
+        lines.push(`   excerpt: ${comment.excerpt}`);
+      }
+      lines.push(`   comment: ${comment.text}`);
+      lines.push("");
+    });
+    return lines.join("\n").trimEnd();
+  };
+
+  const copyText = async (text) => {
+    if (!text) {
+      return false;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_error) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "readonly");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return copied;
+    }
+  };
+
+  const removeActiveEditor = () => {
+    if (activeEditorRow && activeEditorRow.parentElement) {
+      activeEditorRow.parentElement.removeChild(activeEditorRow);
+    }
+    activeEditorRow = null;
+  };
+
+  const updateLineMarkers = () => {
+    const commentedKeys = new Set(reviewerComments.map((comment) => comment.location_key).filter((key) => typeof key === "string" && key));
+    lineRows.forEach((lineRow) => {
+      const key = lineRow.getAttribute("data-location-key");
+      lineRow.classList.toggle("has-reviewer-comment", !!(key && commentedKeys.has(key)));
+    });
+  };
+
+  const renderReviewerComments = () => {
+    if (!commentList) {
+      return;
+    }
+    commentList.innerHTML = "";
+    if (!reviewerComments.length) {
+      const empty = document.createElement("li");
+      empty.className = "reviewer-empty";
+      empty.textContent = "No reviewer comments yet.";
+      commentList.appendChild(empty);
+      updateLineMarkers();
+      return;
+    }
+
+    reviewerComments.forEach((comment, index) => {
+      const item = document.createElement("li");
+      item.className = "reviewer-comment-item";
+
+      const meta = document.createElement("div");
+      meta.className = "reviewer-comment-meta";
+      meta.textContent = `[c${index + 1}] ${lineReference(comment)}`;
+      item.appendChild(meta);
+
+      if (comment.excerpt) {
+        const excerpt = document.createElement("div");
+        excerpt.className = "reviewer-comment-meta";
+        excerpt.textContent = `excerpt: ${comment.excerpt}`;
+        item.appendChild(excerpt);
+      }
+
+      const text = document.createElement("div");
+      text.className = "reviewer-comment-text";
+      text.textContent = comment.text;
+      item.appendChild(text);
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "reviewer-comment-remove";
+      removeButton.textContent = "Remove";
+      removeButton.addEventListener("click", () => {
+        reviewerComments = reviewerComments.filter((candidate) => candidate.id !== comment.id);
+        persistComments();
+        renderReviewerComments();
+      });
+      item.appendChild(removeButton);
+      commentList.appendChild(item);
+    });
+
+    updateLineMarkers();
+  };
+
+  const openEditorForLine = (lineRow) => {
+    removeActiveEditor();
+
+    const editorRow = document.createElement("tr");
+    editorRow.className = "reviewer-editor-row";
+    const editorCell = document.createElement("td");
+    editorCell.colSpan = 3;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "reviewer-editor";
+
+    const newLine = lineRow.getAttribute("data-new-line") || "-";
+    const oldLine = lineRow.getAttribute("data-old-line") || "-";
+    const filePath = lineRow.getAttribute("data-file-path") || "<unknown-file>";
+
+    const meta = document.createElement("p");
+    meta.className = "reviewer-editor-meta";
+    meta.textContent = `${filePath} | new:${newLine} old:${oldLine}`;
+    wrapper.appendChild(meta);
+
+    const textarea = document.createElement("textarea");
+    textarea.placeholder = "Write reviewer comment...";
+    wrapper.appendChild(textarea);
+
+    const actions = document.createElement("div");
+    actions.className = "reviewer-editor-actions";
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.textContent = "Save";
+    saveButton.addEventListener("click", () => {
+      const text = textarea.value.trim();
+      if (!text) {
+        return;
+      }
+      const lineContent = (lineRow.getAttribute("data-line-content") || "").trim();
+      const clippedExcerpt = lineContent.length > 177 ? `${lineContent.slice(0, 177)}...` : lineContent;
+      const oldLineValue = lineRow.getAttribute("data-old-line");
+      const newLineValue = lineRow.getAttribute("data-new-line");
+      reviewerComments.push(
+        {
+          id: `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          file_path: lineRow.getAttribute("data-file-path") || "",
+          old_line: oldLineValue ? Number(oldLineValue) : null,
+          new_line: newLineValue ? Number(newLineValue) : null,
+          excerpt: clippedExcerpt,
+          location_key: lineRow.getAttribute("data-location-key") || "",
+          text,
+        }
+      );
+      persistComments();
+      renderReviewerComments();
+      removeActiveEditor();
+      setStatus(`Saved ${reviewerComments.length} reviewer comment(s).`);
+    });
+    actions.appendChild(saveButton);
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", () => {
+      removeActiveEditor();
+    });
+    actions.appendChild(cancelButton);
+
+    wrapper.appendChild(actions);
+    editorCell.appendChild(wrapper);
+    editorRow.appendChild(editorCell);
+
+    lineRow.insertAdjacentElement("afterend", editorRow);
+    activeEditorRow = editorRow;
+    textarea.focus();
+  };
+
+  if (copyButton) {
+    copyButton.addEventListener("click", async () => {
+      if (!reviewerComments.length) {
+        setStatus("No reviewer comments to copy.");
+        return;
+      }
+      const copied = await copyText(buildAgentPrompt());
+      if (copied) {
+        setStatus(`Copied prompt with ${reviewerComments.length} comment(s).`);
+      } else {
+        setStatus("Could not copy prompt to clipboard.");
+      }
+    });
+  }
+
+  if (clearButton) {
+    clearButton.addEventListener("click", () => {
+      if (!reviewerComments.length) {
+        setStatus("No reviewer comments to clear.");
+        return;
+      }
+      reviewerComments = [];
+      persistComments();
+      renderReviewerComments();
+      removeActiveEditor();
+      setStatus("Cleared reviewer comments.");
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+    const numCell = event.target.closest("td.num");
+    if (!numCell) {
+      return;
+    }
+    const lineRow = numCell.parentElement;
+    if (!(lineRow instanceof HTMLTableRowElement)) {
+      return;
+    }
+    if (!lineRow.classList.contains("line-row")) {
+      return;
+    }
+    openEditorForLine(lineRow);
+  });
 
   const linkById = new Map();
   for (const link of links) {
@@ -498,6 +923,7 @@ header {
   window.addEventListener("scroll", schedule, { passive: true });
   window.addEventListener("resize", schedule);
   schedule();
+  renderReviewerComments();
 })();
 </script>
 {% endif %}

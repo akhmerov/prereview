@@ -206,6 +206,7 @@ def render_html(
         file_view: dict[str, Any] = {
             "anchor_id": file_anchor_id,
             "toc_label": path,
+            "path": path,
             "status": str(file_entry.get("status", "modified")),
             "file_dir": file_dir,
             "file_name": file_name,
@@ -277,7 +278,16 @@ def render_html(
                 if isinstance(explanation, str) and explanation.strip():
                     notes.append({"explanation": explanation.strip()})
 
-            rows: list[dict[str, str]] = []
+            new_start = hunk.get("new_start")
+            new_count = hunk.get("new_count")
+            new_end = None
+            if isinstance(new_start, int):
+                span = new_count if isinstance(new_count, int) else 1
+                if span < 1:
+                    span = 1
+                new_end = new_start + span - 1
+
+            rows: list[dict[str, Any]] = []
             for line in lines_list:
                 if not isinstance(line, dict):
                     continue
@@ -299,6 +309,13 @@ def render_html(
                         "symbol": symbol,
                         "old_no": _line_number(line.get("old_line")),
                         "new_no": _line_number(line.get("new_line")),
+                        "old_line": line.get("old_line")
+                        if isinstance(line.get("old_line"), int)
+                        else None,
+                        "new_line": line.get("new_line")
+                        if isinstance(line.get("new_line"), int)
+                        else None,
+                        "raw_content": str(line.get("content", "")),
                         "content": html.escape(
                             str(line.get("content", "")), quote=True
                         ),
@@ -323,6 +340,9 @@ def render_html(
             file_view["hunks"].append(
                 {
                     "anchor_id": f"{file_anchor_id}-hunk-{hunk_index}",
+                    "hunk_id": str(hunk.get("hunk_id", "")),
+                    "new_start": new_start if isinstance(new_start, int) else None,
+                    "new_end": new_end,
                     "is_open": is_open,
                     "summary_label": summary_label,
                     "added_lines": added_lines,

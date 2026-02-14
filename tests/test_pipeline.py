@@ -423,6 +423,39 @@ def test_render_includes_toc_with_file_and_hunk_links() -> None:
     assert 'classList.toggle("is-active"' in html
 
 
+def test_render_includes_reviewer_commenting_ui() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    annotations = _annotations_from_context(context)
+    report, runtime = evaluate_annotations(context, annotations, strict=True)
+    assert report["valid"] is True
+    assert runtime is not None
+
+    render_annotations = materialize_annotations_for_render(runtime, annotations)
+    html = render_html(
+        {
+            "stats": runtime["stats"],
+            "files": runtime["files"],
+        },
+        render_annotations,
+        report,
+        title="Reviewer comments",
+        max_expanded_lines=120,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
+    )
+
+    assert "id='copy-agent-prompt'" in html
+    assert "id='reviewer-comment-list'" in html
+    assert "id='clear-reviewer-comments'" in html
+    assert "data-comment-trigger='line'" in html
+    assert "data-location-key='src/demo.py::" in html
+    assert "buildAgentPrompt" in html
+    assert "Address all of the following comments one by one." in html
+    assert "target_context_id:" not in html
+    assert " | hunk_id=" not in html
+    assert "Click a line number in the diff to add a reviewer comment." in html
+
+
 def test_render_file_sections_are_collapsible_from_header() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
     annotations = _annotations_from_context(context)
