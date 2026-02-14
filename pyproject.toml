@@ -59,6 +59,7 @@ hatchling = "*"
 
 [tool.pixi.package.run-dependencies]
 python = ">=3.11,<3.14"
+jinja2 = ">=3.1,<4"
 
 [tool.pixi.tasks]
 test = "pytest -q"
