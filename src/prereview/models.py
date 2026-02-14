@@ -56,11 +56,15 @@ class FilePatch:
 
     @property
     def additions(self) -> int:
-        return sum(1 for hunk in self.hunks for line in hunk.lines if line.line_type == "add")
+        return sum(
+            1 for hunk in self.hunks for line in hunk.lines if line.line_type == "add"
+        )
 
     @property
     def deletions(self) -> int:
-        return sum(1 for hunk in self.hunks for line in hunk.lines if line.line_type == "del")
+        return sum(
+            1 for hunk in self.hunks for line in hunk.lines if line.line_type == "del"
+        )
 
     @property
     def status(self) -> str:

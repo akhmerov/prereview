@@ -100,7 +100,9 @@ def _parse_hunk(lines: list[str], start: int, file_path: str) -> tuple[Hunk, int
             new_line += 1
         idx += 1
 
-    hunk_key = f"{file_path}:{old_start}:{old_count}:{new_start}:{new_count}:{trailing_header}"
+    hunk_key = (
+        f"{file_path}:{old_start}:{old_count}:{new_start}:{new_count}:{trailing_header}"
+    )
     hunk = Hunk(
         hunk_id=hash_text(hunk_key),
         old_start=old_start,

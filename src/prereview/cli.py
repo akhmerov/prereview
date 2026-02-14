@@ -21,7 +21,9 @@ from prereview.validate import (
 
 def _prepare_context_cmd(args: argparse.Namespace) -> int:
     if args.stdin_patch:
-        raise SystemExit("prepare-context does not support --stdin-patch because validate/build must recompute diff deterministically.")
+        raise SystemExit(
+            "prepare-context does not support --stdin-patch because validate/build must recompute diff deterministically."
+        )
 
     source_spec = build_source_spec(
         patch_file=args.patch_file,
@@ -43,7 +45,9 @@ def _prepare_context_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_validation_failure_message(args: argparse.Namespace, report: dict[str, object]) -> str:
+def _build_validation_failure_message(
+    args: argparse.Namespace, report: dict[str, object]
+) -> str:
     grouped = grouped_issues(report)
     errors = len(grouped.get("error", []))
     warnings = len(grouped.get("warning", []))
@@ -105,7 +109,11 @@ def _build_cmd(args: argparse.Namespace) -> int:
     if compile_issues:
         combined_issues = [*compile_issues, *report.get("issues", [])]
         report = {
-            "valid": not any(issue.get("level") == "error" for issue in combined_issues if isinstance(issue, dict)),
+            "valid": not any(
+                issue.get("level") == "error"
+                for issue in combined_issues
+                if isinstance(issue, dict)
+            ),
             "issues": combined_issues,
             "stats": report.get("stats", {}),
         }
@@ -114,7 +122,9 @@ def _build_cmd(args: argparse.Namespace) -> int:
         raise SystemExit(_build_validation_failure_message(args, report))
 
     if runtime is None:
-        raise SystemExit("Cannot build preview because runtime diff recomputation failed.")
+        raise SystemExit(
+            "Cannot build preview because runtime diff recomputation failed."
+        )
 
     render_annotations = materialize_annotations_for_render(runtime, annotations)
     html = render_html(
@@ -161,11 +171,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    prepare_parser = subparsers.add_parser("prepare-context", help="Prepare reviewer-focused context input.")
+    prepare_parser = subparsers.add_parser(
+        "prepare-context", help="Prepare reviewer-focused context input."
+    )
     source_group = prepare_parser.add_mutually_exclusive_group()
-    source_group.add_argument("--patch-file", type=Path, help="Read unified diff from file.")
-    source_group.add_argument("--stdin-patch", action="store_true", help="(unsupported) kept for explicit error message.")
-    source_group.add_argument("--git-range", help="Generate diff from a git range (e.g. HEAD~1..HEAD).")
+    source_group.add_argument(
+        "--patch-file", type=Path, help="Read unified diff from file."
+    )
+    source_group.add_argument(
+        "--stdin-patch",
+        action="store_true",
+        help="(unsupported) kept for explicit error message.",
+    )
+    source_group.add_argument(
+        "--git-range", help="Generate diff from a git range (e.g. HEAD~1..HEAD)."
+    )
     prepare_parser.add_argument(
         "--use-working-tree",
         action="store_true",
@@ -187,14 +207,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Exclude paths matching this glob from context generation (repeatable, e.g. 'showcase/**').",
     )
-    prepare_parser.add_argument("--out", type=Path, required=True, help="Output review-context JSON path.")
+    prepare_parser.add_argument(
+        "--out", type=Path, required=True, help="Output review-context JSON path."
+    )
     prepare_parser.set_defaults(func=_prepare_context_cmd)
 
     build_parser = subparsers.add_parser(
         "build",
         help="Build static HTML from context + notes (or legacy annotations) with validation.",
     )
-    build_parser.add_argument("--context", type=Path, required=True, help="Path to review-context JSON.")
+    build_parser.add_argument(
+        "--context", type=Path, required=True, help="Path to review-context JSON."
+    )
     input_group = build_parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--notes",
@@ -212,7 +236,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("review.html"),
         help="Output HTML file path at repository root by default.",
     )
-    build_parser.add_argument("--title", default="Prereview Report", help="Report title.")
+    build_parser.add_argument(
+        "--title", default="Prereview Report", help="Report title."
+    )
     build_parser.add_argument(
         "--keep-inputs",
         action="store_true",
@@ -248,7 +274,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="strict",
         help="Downgrade unknown anchors/files to warnings during build validation.",
     )
-    build_parser.set_defaults(collapse_large_hunks=True, allow_split_hunks=True, strict=True)
+    build_parser.set_defaults(
+        collapse_large_hunks=True, allow_split_hunks=True, strict=True
+    )
     build_parser.set_defaults(func=_build_cmd)
 
     return parser

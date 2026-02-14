@@ -30,7 +30,9 @@ def evaluate_annotations(
     issues.extend(validate_annotation_schema(annotations))
 
     if not isinstance(context, dict):
-        issues.append(_issue("error", "context_type", "Context must be a JSON object.", "$"))
+        issues.append(
+            _issue("error", "context_type", "Context must be a JSON object.", "$")
+        )
         report = {
             "valid": False,
             "issues": issues,
@@ -43,7 +45,9 @@ def evaluate_annotations(
         return report, None
 
     context_id = context.get("context_id")
-    target = annotations.get("target_context_id") if isinstance(annotations, dict) else None
+    target = (
+        annotations.get("target_context_id") if isinstance(annotations, dict) else None
+    )
     if isinstance(context_id, str) and isinstance(target, str) and target != context_id:
         issues.append(
             _issue(
@@ -70,7 +74,10 @@ def evaluate_annotations(
     if runtime is not None:
         expected_fingerprint = context.get("diff_fingerprint")
         actual_fingerprint = runtime.get("diff_fingerprint")
-        if isinstance(expected_fingerprint, str) and expected_fingerprint != actual_fingerprint:
+        if (
+            isinstance(expected_fingerprint, str)
+            and expected_fingerprint != actual_fingerprint
+        ):
             issues.append(
                 _issue(
                     "error",
@@ -84,8 +91,16 @@ def evaluate_annotations(
     unmapped_anchors = 0
     files_with_annotations = 0
 
-    if runtime is not None and isinstance(annotations, dict) and isinstance(annotations.get("files"), list):
-        runtime_file_paths = {str(file_entry.get("path")): file_entry for file_entry in runtime.get("files", []) if isinstance(file_entry, dict)}
+    if (
+        runtime is not None
+        and isinstance(annotations, dict)
+        and isinstance(annotations.get("files"), list)
+    ):
+        runtime_file_paths = {
+            str(file_entry.get("path")): file_entry
+            for file_entry in runtime.get("files", [])
+            if isinstance(file_entry, dict)
+        }
         anchor_index = runtime.get("anchor_index", {})
 
         for file_idx, file_annotation in enumerate(annotations["files"]):
@@ -109,7 +124,9 @@ def evaluate_annotations(
                 )
                 continue
 
-            file_anchor_index = anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
+            file_anchor_index = (
+                anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
+            )
             for anchor_idx, anchor in enumerate(iter_file_anchors(file_annotation)):
                 anchor_id = anchor.get("anchor_id")
                 if not isinstance(anchor_id, str):
@@ -164,7 +181,9 @@ def materialize_annotations_for_render(
 
     annotations_by_file: dict[str, dict[str, Any]] = {}
     for file_annotation in annotations.get("files", []):
-        if isinstance(file_annotation, dict) and isinstance(file_annotation.get("path"), str):
+        if isinstance(file_annotation, dict) and isinstance(
+            file_annotation.get("path"), str
+        ):
             annotations_by_file[file_annotation["path"]] = file_annotation
 
     render_files: list[dict[str, Any]] = []
@@ -184,7 +203,9 @@ def materialize_annotations_for_render(
             "hunks": [],
         }
 
-        per_file_anchor_index = anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
+        per_file_anchor_index = (
+            anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
+        )
         for anchor in iter_file_anchors(file_annotation):
             anchor_id = anchor.get("anchor_id")
             if not isinstance(anchor_id, str):
@@ -204,7 +225,9 @@ def materialize_annotations_for_render(
                 "why_changed": _ensure_terminal_punctuation(why_changed),
             }
             if reviewer_focus:
-                note_fields["reviewer_focus"] = _ensure_terminal_punctuation(reviewer_focus)
+                note_fields["reviewer_focus"] = _ensure_terminal_punctuation(
+                    reviewer_focus
+                )
             if risk:
                 note_fields["risk"] = _ensure_terminal_punctuation(risk)
 
@@ -219,8 +242,16 @@ def materialize_annotations_for_render(
                     [
                         f"What changed: {note_fields['what_changed']}",
                         f"Why: {note_fields['why_changed']}",
-                        *([f"Reviewer focus: {note_fields['reviewer_focus']}"] if "reviewer_focus" in note_fields else []),
-                        *([f"Risk: {note_fields['risk']}"] if "risk" in note_fields else []),
+                        *(
+                            [f"Reviewer focus: {note_fields['reviewer_focus']}"]
+                            if "reviewer_focus" in note_fields
+                            else []
+                        ),
+                        *(
+                            [f"Risk: {note_fields['risk']}"]
+                            if "risk" in note_fields
+                            else []
+                        ),
                     ]
                 ),
                 "comments": [],
@@ -231,7 +262,9 @@ def materialize_annotations_for_render(
             if isinstance(anchor_line, int) and severity in {"warning", "risk"}:
                 text_bits = []
                 if reviewer_focus:
-                    text_bits.append(f"Reviewer focus: {_ensure_terminal_punctuation(reviewer_focus)}")
+                    text_bits.append(
+                        f"Reviewer focus: {_ensure_terminal_punctuation(reviewer_focus)}"
+                    )
                 if risk:
                     text_bits.append(f"Risk: {_ensure_terminal_punctuation(risk)}")
                 if text_bits:

@@ -61,7 +61,9 @@ def _comment_range(comment: dict[str, Any]) -> tuple[int | None, int | None]:
     return None, None
 
 
-def _comments_by_line(file_annotation: dict[str, Any]) -> dict[int, list[dict[str, Any]]]:
+def _comments_by_line(
+    file_annotation: dict[str, Any],
+) -> dict[int, list[dict[str, Any]]]:
     by_line: dict[int, list[dict[str, Any]]] = {}
 
     def add_comment(comment: dict[str, Any], source: str) -> None:
@@ -109,7 +111,12 @@ def _hunk_annotations(
 
         new_start = hunk_annotation.get("new_start")
         new_end = hunk_annotation.get("new_end")
-        if isinstance(new_start, int) and isinstance(new_end, int) and isinstance(hunk_start, int) and isinstance(hunk_end, int):
+        if (
+            isinstance(new_start, int)
+            and isinstance(new_end, int)
+            and isinstance(hunk_start, int)
+            and isinstance(hunk_end, int)
+        ):
             if new_end < new_start:
                 new_start, new_end = new_end, new_start
             if new_start <= hunk_end and new_end >= hunk_start:
@@ -121,7 +128,11 @@ def _hunk_annotations(
 _TEMPLATE_ENV = Environment(autoescape=True, trim_blocks=True, lstrip_blocks=True)
 
 
-_TEMPLATE_TEXT = resources.files("prereview").joinpath("templates/review.html.j2").read_text(encoding="utf-8")
+_TEMPLATE_TEXT = (
+    resources.files("prereview")
+    .joinpath("templates/review.html.j2")
+    .read_text(encoding="utf-8")
+)
 _TEMPLATE = _TEMPLATE_ENV.from_string(_TEMPLATE_TEXT)
 
 
@@ -142,16 +153,28 @@ def render_html(
 
     file_annotations: dict[str, dict[str, Any]] = {}
     for file_annotation in annotations.get("files", []):
-        if isinstance(file_annotation, dict) and isinstance(file_annotation.get("path"), str):
+        if isinstance(file_annotation, dict) and isinstance(
+            file_annotation.get("path"), str
+        ):
             file_annotations[file_annotation["path"]] = file_annotation
 
     issues = validation_report.get("issues", [])
-    error_count = sum(1 for issue in issues if isinstance(issue, dict) and issue.get("level") == "error")
-    warning_count = sum(1 for issue in issues if isinstance(issue, dict) and issue.get("level") == "warning")
+    error_count = sum(
+        1
+        for issue in issues
+        if isinstance(issue, dict) and issue.get("level") == "error"
+    )
+    warning_count = sum(
+        1
+        for issue in issues
+        if isinstance(issue, dict) and issue.get("level") == "warning"
+    )
 
     overview_lines = []
     if isinstance(overview, list):
-        overview_lines = [line for line in overview if isinstance(line, str) and line.strip()][:8]
+        overview_lines = [
+            line for line in overview if isinstance(line, str) and line.strip()
+        ][:8]
 
     issues_render: list[dict[str, str]] = []
     for issue in issues[:25]:
@@ -186,7 +209,9 @@ def render_html(
             "status": str(file_entry.get("status", "modified")),
             "file_dir": file_dir,
             "file_name": file_name,
-            "summary_text": _normalize_file_summary(path, file_annotation.get("summary")),
+            "summary_text": _normalize_file_summary(
+                path, file_annotation.get("summary")
+            ),
             "is_binary": bool(file_entry.get("is_binary")),
             "hunks": [],
         }
@@ -200,11 +225,15 @@ def render_html(
             if not isinstance(hunk, dict):
                 continue
 
-            hunk_annotations = _hunk_annotations(file_annotation, hunk, allow_split_hunks)
+            hunk_annotations = _hunk_annotations(
+                file_annotation, hunk, allow_split_hunks
+            )
             lines = hunk.get("lines", [])
             lines_list = lines if isinstance(lines, list) else []
 
-            is_open = not bool(collapse_large_hunks and len(lines_list) > max_expanded_lines)
+            is_open = not bool(
+                collapse_large_hunks and len(lines_list) > max_expanded_lines
+            )
 
             added_lines = sum(
                 1
@@ -231,7 +260,12 @@ def render_html(
                 note_fields = hunk_annotation.get("note_fields")
                 if isinstance(note_fields, dict):
                     structured_note: dict[str, str] = {}
-                    for field in ("what_changed", "why_changed", "reviewer_focus", "risk"):
+                    for field in (
+                        "what_changed",
+                        "why_changed",
+                        "reviewer_focus",
+                        "risk",
+                    ):
                         value = note_fields.get(field)
                         if isinstance(value, str) and value.strip():
                             structured_note[field] = value.strip()
@@ -265,14 +299,19 @@ def render_html(
                         "symbol": symbol,
                         "old_no": _line_number(line.get("old_line")),
                         "new_no": _line_number(line.get("new_line")),
-                        "content": html.escape(str(line.get("content", "")), quote=True),
+                        "content": html.escape(
+                            str(line.get("content", "")), quote=True
+                        ),
                     }
                 )
 
                 new_line = line.get("new_line")
                 if isinstance(new_line, int) and new_line in comments_by_line:
                     for comment in comments_by_line[new_line]:
-                        severity = str(comment.get("severity", "info")).strip().lower() or "info"
+                        severity = (
+                            str(comment.get("severity", "info")).strip().lower()
+                            or "info"
+                        )
                         rows.append(
                             {
                                 "kind": "comment",
@@ -295,7 +334,9 @@ def render_html(
 
         files_render.append(file_view)
 
-    embedded_json = _json_for_html_script(embedded_data) if embedded_data is not None else None
+    embedded_json = (
+        _json_for_html_script(embedded_data) if embedded_data is not None else None
+    )
 
     return _TEMPLATE.render(
         title=title,

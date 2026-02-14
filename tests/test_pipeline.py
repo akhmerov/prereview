@@ -29,7 +29,9 @@ index 1111111..2222222 100644
 """
 
 
-def _context_from_patch(patch: str, *, exclude_paths: list[str] | None = None) -> dict[str, object]:
+def _context_from_patch(
+    patch: str, *, exclude_paths: list[str] | None = None
+) -> dict[str, object]:
     patch_path = Path("/tmp/prereview-context.patch")
     patch_path.write_text(patch, encoding="utf-8")
     source_spec = build_source_spec(
@@ -169,7 +171,9 @@ def test_compile_notes_to_annotations_maps_anchors() -> None:
     assert annotations["target_context_id"] == context["context_id"]
     assert annotations["files"]
     compiled_anchor = annotations["files"][0]["anchors"][0]
-    assert compiled_anchor["anchor_id"] == context["files"][0]["anchors"][0]["anchor_id"]
+    assert (
+        compiled_anchor["anchor_id"] == context["files"][0]["anchors"][0]["anchor_id"]
+    )
     assert "what_changed" in compiled_anchor
     assert "why_changed" in compiled_anchor
 
@@ -361,7 +365,9 @@ def test_render_summary_deduplicates_filename_prefix() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
     annotations = _annotations_from_context(context)
     path = str(annotations["files"][0]["path"])
-    annotations["files"][0]["summary"] = f"{path}: Focused update for greeting behavior."
+    annotations["files"][0]["summary"] = (
+        f"{path}: Focused update for greeting behavior."
+    )
 
     report, runtime = evaluate_annotations(context, annotations, strict=True)
     assert report["valid"] is True
@@ -414,7 +420,7 @@ def test_render_includes_toc_with_file_and_hunk_links() -> None:
     assert "href='#file-1-hunk-1'" in html
     assert "data-toc-link='file-1-hunk-1'" in html
     assert "class='toc-link toc-hunk-link'" in html
-    assert "classList.toggle(\"is-active\"" in html
+    assert 'classList.toggle("is-active"' in html
 
 
 def test_render_file_sections_are_collapsible_from_header() -> None:
@@ -441,7 +447,7 @@ def test_render_file_sections_are_collapsible_from_header() -> None:
     assert "<details class='file toc-target'" in html
     assert "<summary class='file-header'>" in html
     assert "class='file-toggle'" in html
-    assert "parent.parentElement.closest(\"details\")" in html
+    assert 'parent.parentElement.closest("details")' in html
 
 
 def test_cli_context_pipeline(tmp_path: Path) -> None:
@@ -600,7 +606,9 @@ def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
     assert not html_path.exists()
 
 
-def test_cli_build_defaults_to_root_review_html(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_build_defaults_to_root_review_html(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     patch_path = tmp_path / "change.patch"
     context_path = tmp_path / "review-context.json"
     notes_path = tmp_path / "annotation-notes.json"
@@ -746,7 +754,9 @@ new file mode 100644
     assert "notes.txt" in paths
 
 
-def test_collect_patch_uses_git_pathspec_excludes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_collect_patch_uses_git_pathspec_excludes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: list[tuple[list[str], int | None]] = []
 
     def fake_run(args: list[str], *, max_output_bytes: int | None = None) -> str:

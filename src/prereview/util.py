@@ -21,7 +21,9 @@ def ensure_parent(path: Path) -> None:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     ensure_parent(path)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def load_json(path: Path) -> Any:

@@ -46,7 +46,9 @@ def _run_git_command(args: list[str], *, max_output_bytes: int | None = None) ->
         returncode = proc.wait()
         output = b"".join(chunks).decode("utf-8", errors="replace")
         if returncode not in {0, 1}:
-            raise RuntimeError(output.strip() or f"git command failed: {' '.join(args)}")
+            raise RuntimeError(
+                output.strip() or f"git command failed: {' '.join(args)}"
+            )
         return output
 
     proc = subprocess.run(
@@ -56,7 +58,9 @@ def _run_git_command(args: list[str], *, max_output_bytes: int | None = None) ->
         text=True,
     )
     if proc.returncode not in {0, 1}:
-        raise RuntimeError(proc.stderr.strip() or f"git command failed: {' '.join(args)}")
+        raise RuntimeError(
+            proc.stderr.strip() or f"git command failed: {' '.join(args)}"
+        )
     return proc.stdout
 
 
@@ -65,7 +69,9 @@ def _read_patch_file(path: Path) -> str:
 
 
 def _build_untracked_patch(exclude_paths: list[str]) -> str:
-    names = _run_git_command(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    names = _run_git_command(
+        ["ls-files", "--others", "--exclude-standard"]
+    ).splitlines()
     chunks: list[str] = []
     total_bytes = 0
     for name in names:
@@ -139,7 +145,11 @@ def collect_patch_text_from_source(source_spec: dict[str, Any]) -> str:
     if not isinstance(exclude_paths, list):
         exclude_paths = []
     exclude_patterns = [str(pattern) for pattern in exclude_paths]
-    exclude_pathspecs = [f":(exclude,glob){pattern.lstrip('./')}" for pattern in exclude_patterns if pattern.strip()]
+    exclude_pathspecs = [
+        f":(exclude,glob){pattern.lstrip('./')}"
+        for pattern in exclude_patterns
+        if pattern.strip()
+    ]
 
     mode = source_spec.get("mode")
     if mode == "patch-file":
@@ -188,7 +198,9 @@ def _is_excluded(path: str, exclude_paths: list[str]) -> bool:
     return False
 
 
-def _parse_files(raw_patch: str, exclude_paths: list[str], *, exclude_binary: bool) -> list[FilePatch]:
+def _parse_files(
+    raw_patch: str, exclude_paths: list[str], *, exclude_binary: bool
+) -> list[FilePatch]:
     files = parse_unified_diff(raw_patch)
     if exclude_paths:
         files = [file for file in files if not _is_excluded(file.path, exclude_paths)]
@@ -255,7 +267,9 @@ def _focus_snippets(lines: list[Line], *, limit: int = 3) -> list[str]:
         content = line.content.strip()
         if not content:
             continue
-        if any(content.startswith(prefix) for prefix in prefixes) or ("=" in content and not content.startswith("#")):
+        if any(content.startswith(prefix) for prefix in prefixes) or (
+            "=" in content and not content.startswith("#")
+        ):
             snippets.append(_line_excerpt(content))
         if len(snippets) >= limit:
             break
@@ -326,7 +340,13 @@ def build_review_context(raw_patch: str, source_spec: dict[str, Any]) -> dict[st
             {
                 "source_spec": source_spec,
                 "diff_fingerprint": diff_fingerprint,
-                "files": [{"path": file_entry["path"], "anchors": [a["anchor_id"] for a in file_entry["anchors"]]} for file_entry in context_files],
+                "files": [
+                    {
+                        "path": file_entry["path"],
+                        "anchors": [a["anchor_id"] for a in file_entry["anchors"]],
+                    }
+                    for file_entry in context_files
+                ],
             },
             sort_keys=True,
         )
@@ -367,7 +387,11 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
             anchor_id = hash_text(f"{path}:{hunk_id}")
             anchor_line: int | None = None
             for line in hunk.get("lines", []):
-                if isinstance(line, dict) and line.get("type") == "add" and isinstance(line.get("new_line"), int):
+                if (
+                    isinstance(line, dict)
+                    and line.get("type") == "add"
+                    and isinstance(line.get("new_line"), int)
+                ):
                     anchor_line = line["new_line"]
                     break
 
@@ -375,7 +399,9 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
                 "anchor_id": anchor_id,
                 "hunk_id": hunk_id,
                 "new_start": hunk.get("new_start"),
-                "new_end": (hunk.get("new_start", 1) + max(int(hunk.get("new_count", 1)) - 1, 0))
+                "new_end": (
+                    hunk.get("new_start", 1) + max(int(hunk.get("new_count", 1)) - 1, 0)
+                )
                 if isinstance(hunk.get("new_start"), int)
                 else 1,
                 "anchor_line": anchor_line,
