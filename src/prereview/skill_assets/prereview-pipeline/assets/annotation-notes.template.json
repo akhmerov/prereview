@@ -1,0 +1,25 @@
+{
+  "version": "1",
+  "target_context_id": "REPLACE_WITH_CONTEXT_ID",
+  "overview": [
+    "Scope: summarize meaningful change scope.",
+    "Primary intent: explain what changed and why.",
+    "Reviewer focus: note key risks or decision points."
+  ],
+  "file_summaries": [
+    {
+      "path": "src/example.py",
+      "summary": "Optional file-level context if helpful."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "REPLACE_WITH_ANCHOR_ID",
+      "title": "Review focus",
+      "what_changed": "Describe concrete behavior/API/data-flow updates for this focus.",
+      "why_changed": "Describe intent and expected reviewer takeaway.",
+      "reviewer_focus": "Optional reviewer check or question.",
+      "severity": "note"
+    }
+  ]
+}

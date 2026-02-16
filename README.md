@@ -51,3 +51,29 @@ prereview --help
 ```bash
 pixi exec --spec uv uvx --from git+https://gitlab.kwant-project.org/anton-akhmerov/prereview.git prereview --help
 ```
+
+## Install bundled skill
+
+After installing `prereview`, install the bundled `prereview-pipeline` skill
+for Codex, Claude, or Copilot.
+
+Project-local install (recommended, run from project root):
+
+```bash
+prereview install-skill --agent codex --local
+```
+
+Local targets by agent:
+
+- `codex` -> `.codex/skills/prereview-pipeline`
+- `claude` -> `.claude/skills/prereview-pipeline`
+- `copilot` -> `.github/skills/prereview-pipeline`
+
+Global/user-level install (explicit target dir):
+
+```bash
+prereview install-skill --agent codex --target-dir ~/.codex/skills
+```
+
+You can also omit both `--local` and `--target-dir` and the CLI will prompt for
+a destination folder. Use `--force` to overwrite an existing installation.

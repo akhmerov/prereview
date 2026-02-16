@@ -20,6 +20,12 @@ from prereview.review_io import (
     render_review_input,
     write_rejected_notes_jsonl,
 )
+from prereview.skill_install import (
+    AGENT_CHOICES,
+    SKILL_NAME,
+    install_packaged_skill,
+    local_target_root,
+)
 from prereview.renderer import render_html
 from prereview.util import ensure_parent, load_json, write_json, write_text
 from prereview.validate import (
@@ -450,6 +456,48 @@ def _clean_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prompt_target_dir(agent: str) -> Path:
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "install-skill needs a target folder in non-interactive mode. "
+            "Use --target-dir or --local."
+        )
+    target_text = input(f"Target folder for {agent} skills: ").strip()
+    if not target_text:
+        raise SystemExit("Target folder is required.")
+    return Path(target_text)
+
+
+def _install_skill_cmd(args: argparse.Namespace) -> int:
+    if args.local:
+        target_root = local_target_root(args.agent, project_root=Path.cwd())
+    elif args.target_dir is not None:
+        target_root = args.target_dir
+    else:
+        target_root = _prompt_target_dir(args.agent)
+
+    install_path = target_root.expanduser().resolve() / SKILL_NAME
+    force = bool(args.force)
+    if install_path.exists() and not force:
+        if not sys.stdin.isatty():
+            raise SystemExit(
+                f"Skill already exists at {install_path}; rerun with --force."
+            )
+        overwrite = (
+            input(f"Skill already exists at {install_path}. Overwrite? [y/N]: ")
+            .strip()
+            .lower()
+        )
+        if overwrite not in {"y", "yes"}:
+            print("Installation cancelled.")
+            return 1
+        force = True
+
+    installed_path = install_packaged_skill(target_root=target_root, force=force)
+    print(f"Installed {SKILL_NAME} for {args.agent} at {installed_path}")
+    return 0
+
+
 def _prepare_context_cmd(args: argparse.Namespace) -> int:
     if args.stdin_patch:
         raise SystemExit(
@@ -667,6 +715,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Delete artifacts workspace and remove it from local git excludes.",
     )
     clean_parser.set_defaults(func=_clean_cmd)
+
+    install_skill_parser = subparsers.add_parser(
+        "install-skill",
+        help="Install bundled prereview skill files into an agent skills folder.",
+    )
+    install_skill_parser.add_argument(
+        "--agent",
+        choices=list(AGENT_CHOICES),
+        default="codex",
+        help="Agent type; used for default local target root.",
+    )
+    target_group = install_skill_parser.add_mutually_exclusive_group()
+    target_group.add_argument(
+        "--local",
+        action="store_true",
+        help=(
+            "Install into a local project folder derived from CWD: "
+            "codex=.codex/skills, claude=.claude/skills, copilot=.github/skills."
+        ),
+    )
+    target_group.add_argument(
+        "--target-dir",
+        type=Path,
+        help="Install into this skills root directory (skip interactive prompt).",
+    )
+    install_skill_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing destination folder without confirmation.",
+    )
+    install_skill_parser.set_defaults(func=_install_skill_cmd)
 
     prepare_parser = subparsers.add_parser(
         "prepare-context", help="Prepare reviewer-focused context input."

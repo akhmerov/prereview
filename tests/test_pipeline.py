@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -932,6 +933,57 @@ def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
     html = (artifacts_dir / "review.html").read_text(encoding="utf-8")
     assert "src/demo.py" in html
     assert "prereview-embedded-data" in html
+
+
+def test_cli_install_skill_with_target_dir(tmp_path: Path) -> None:
+    target_dir = tmp_path / "skills-root"
+
+    assert main(["install-skill", "--target-dir", str(target_dir)]) == 0
+
+    installed_dir = target_dir / "prereview-pipeline"
+    assert (installed_dir / "SKILL.md").exists()
+    assert (installed_dir / "assets" / "annotation-notes.template.json").exists()
+    assert (installed_dir / "references" / "annotation-schema.md").exists()
+
+
+def test_cli_install_skill_local_uses_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["install-skill", "--local", "--agent", "codex"]) == 0
+    assert (tmp_path / ".codex" / "skills" / "prereview-pipeline" / "SKILL.md").exists()
+
+
+def test_cli_install_skill_local_copilot_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["install-skill", "--local", "--agent", "copilot"]) == 0
+    assert (
+        tmp_path / ".github" / "skills" / "prereview-pipeline" / "SKILL.md"
+    ).exists()
+
+
+def test_cli_install_skill_requires_target_when_noninteractive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["install-skill"])
+    assert "target folder" in str(excinfo.value)
+
+
+def test_cli_install_skill_force_overwrites_existing(tmp_path: Path) -> None:
+    target_dir = tmp_path / "skills-root"
+    existing = target_dir / "prereview-pipeline"
+    existing.mkdir(parents=True, exist_ok=True)
+    (existing / "SKILL.md").write_text("stale", encoding="utf-8")
+
+    assert main(["install-skill", "--target-dir", str(target_dir), "--force"]) == 0
+
+    skill_text = (existing / "SKILL.md").read_text(encoding="utf-8")
+    assert "name: prereview-pipeline" in skill_text
 
 
 def test_cli_run_writes_rejected_notes_for_bad_jsonl(tmp_path: Path) -> None:
