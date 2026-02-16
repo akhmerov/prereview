@@ -1,179 +1,98 @@
 from __future__ import annotations
 
 import json
+from importlib import resources
 from pathlib import Path
 from typing import Any
+
+from jinja2 import Environment
 
 from prereview.util import write_text
 
 _ALLOWED_SEVERITIES = {"info", "note", "warning", "risk"}
+_TEMPLATE_ENV = Environment(
+    autoescape=False,
+    trim_blocks=True,
+    lstrip_blocks=True,
+    keep_trailing_newline=True,
+)
+_REVIEW_INPUT_TEMPLATE = _TEMPLATE_ENV.from_string(
+    resources.files("prereview")
+    .joinpath("templates/review-input.txt.j2")
+    .read_text(encoding="utf-8")
+)
 
 
 def _warning(code: str, message: str, location: str) -> dict[str, str]:
     return {"level": "warning", "code": code, "message": message, "location": location}
 
 
-def default_review_notes_template() -> str:
-    return (
-        "# prereview notes JSONL\n"
-        "# One JSON object per line.\n"
-        '# {"type":"overview","text":"Scope: ..."}\n'
-        '# {"type":"file_summary","path":"src/example.py","summary":"..."}\n'
-        '# {"type":"anchor_note","anchor_id":"<anchor-id>","what_changed":"...","why_changed":"..."}\n'
-    )
-
-
-def _compact_json_line(record: dict[str, Any]) -> str:
-    return json.dumps(record, ensure_ascii=True, separators=(",", ":"))
-
-
-def notes_payload_to_jsonl_lines(notes_payload: dict[str, Any]) -> list[str]:
-    lines: list[str] = []
-
-    overview = notes_payload.get("overview")
-    if isinstance(overview, list):
-        for item in overview:
-            if isinstance(item, str) and (text := item.strip()):
-                lines.append(_compact_json_line({"type": "overview", "text": text}))
-
-    file_summaries = notes_payload.get("file_summaries")
-    if isinstance(file_summaries, list):
-        for summary in file_summaries:
-            if not isinstance(summary, dict):
-                continue
-            path = summary.get("path")
-            text = summary.get("summary")
-            if (
-                isinstance(path, str)
-                and path
-                and isinstance(text, str)
-                and text.strip()
-            ):
-                lines.append(
-                    _compact_json_line(
-                        {"type": "file_summary", "path": path, "summary": text.strip()}
-                    )
-                )
-
-    anchors = notes_payload.get("anchors")
-    if isinstance(anchors, list):
-        for anchor in anchors:
-            if not isinstance(anchor, dict):
-                continue
-            anchor_id = anchor.get("anchor_id")
-            what_changed = anchor.get("what_changed")
-            why_changed = anchor.get("why_changed")
-            if not (
-                isinstance(anchor_id, str)
-                and anchor_id
-                and isinstance(what_changed, str)
-                and what_changed.strip()
-                and isinstance(why_changed, str)
-                and why_changed.strip()
-            ):
-                continue
-
-            record: dict[str, Any] = {
-                "type": "anchor_note",
-                "anchor_id": anchor_id,
-                "what_changed": what_changed.strip(),
-                "why_changed": why_changed.strip(),
-            }
-            for field in ("title", "reviewer_focus", "risk", "severity"):
-                value = anchor.get(field)
-                if isinstance(value, str) and (clean_value := value.strip()):
-                    record[field] = clean_value
-
-            lines.append(_compact_json_line(record))
-
-    return lines
-
-
 def render_review_input(
     context: dict[str, Any],
     *,
     notes_file: str,
-    anchor_states: dict[str, dict[str, Any]] | None = None,
+    anchor_states: dict[str, dict[str, Any]],
 ) -> str:
     stats = context["stats"]
-    files = context["files"]
+    files_view: list[dict[str, Any]] = []
 
-    lines = [
-        "PREREVIEW REVIEW INPUT v1",
-        f"target_context_id: {context['context_id']}",
-        f"diff_fingerprint: {context['diff_fingerprint']}",
-        f"stats: files={stats['files_changed']} additions={stats['additions']} deletions={stats['deletions']}",
-        f"write_notes_to: {notes_file}",
-        "",
-        "Write JSONL records. Supported record types:",
-        '{"type":"overview","text":"..."}',
-        '{"type":"file_summary","path":"...","summary":"..."}',
-        '{"type":"anchor_note","anchor_id":"...","what_changed":"...","why_changed":"...","title":"...","reviewer_focus":"...","risk":"...","severity":"note"}',
-        "",
-        "CONTEXT START",
-    ]
-
-    for file_entry in files:
-        path = file_entry["path"]
-        status = file_entry["status"]
-        lines.append(f"FILE path={path} status={status}")
+    for file_entry in context["files"]:
+        anchors_view: list[dict[str, Any]] = []
         for anchor in file_entry["anchors"]:
             anchor_id = anchor["anchor_id"]
+            state = anchor_states[anchor_id]
+            uncommented = state["uncommented"]
+            changed_loc_text = str(state["changed_loc"])
 
-            state = (
-                anchor_states.get(anchor_id, {})
-                if isinstance(anchor_states, dict)
-                else {}
+            snippets = (
+                [
+                    snippet.strip()
+                    for snippet in anchor["focus_snippets"]
+                    if snippet.strip()
+                ]
+                if not uncommented
+                else []
             )
-            uncommented = state.get("uncommented")
-            changed_loc = state.get("changed_loc")
-            if isinstance(uncommented, bool):
-                changed_loc_text = (
-                    str(changed_loc) if isinstance(changed_loc, int) else "?"
-                )
-                lines.append(
-                    f"ANCHOR id={anchor_id} "
-                    f"uncommented={'true' if uncommented else 'false'} "
-                    f"changed_loc={changed_loc_text}"
-                )
-            else:
-                lines.append(f"ANCHOR id={anchor_id}")
 
-            title = anchor.get("title", "").strip()
-            if title:
-                lines.append(f"TITLE {title}")
+            risk_hint_text = (anchor["risk_hint"] or "").strip()
 
-            if uncommented is not True:
-                for snippet in anchor.get("focus_snippets", []):
-                    if isinstance(snippet, str) and (text := snippet.strip()):
-                        lines.append(f"SNIPPET {text}")
-
-            if isinstance(risk_hint := anchor.get("risk_hint"), str) and (
-                risk_hint_text := risk_hint.strip()
-            ):
-                lines.append(f"RISK_HINT {risk_hint_text}")
-
+            diff_lines: list[str] = []
             if uncommented:
-                diff_lines = state.get("diff_lines")
-                if isinstance(diff_lines, list) and diff_lines:
-                    lines.append("DIFF_START")
-                    for diff_line in diff_lines:
-                        if isinstance(diff_line, str):
-                            lines.append(diff_line)
+                maybe_lines = state.get("diff_lines", [])
+                if maybe_lines:
+                    diff_lines = list(maybe_lines)
                     if state.get("diff_truncated"):
-                        lines.append("... (diff truncated)")
-                    lines.append("DIFF_END")
+                        diff_lines.append("... (diff truncated)")
                 elif state.get("diff_omitted"):
-                    lines.append("DIFF_START")
-                    lines.append("... (diff omitted: budget exceeded)")
-                    lines.append("DIFF_END")
+                    diff_lines.append("... (diff omitted: budget exceeded)")
 
-            lines.append("END_ANCHOR")
-        lines.append("END_FILE")
+            anchors_view.append(
+                {
+                    "anchor_id": anchor_id,
+                    "uncommented": uncommented,
+                    "changed_loc_text": changed_loc_text,
+                    "title": anchor["title"].strip(),
+                    "snippets": snippets,
+                    "risk_hint": risk_hint_text,
+                    "diff_lines": diff_lines,
+                }
+            )
 
-    lines.append("CONTEXT END")
+        files_view.append(
+            {
+                "path": file_entry["path"],
+                "status": file_entry["status"],
+                "anchors": anchors_view,
+            }
+        )
 
-    return "\n".join(lines) + "\n"
+    return _REVIEW_INPUT_TEMPLATE.render(
+        context_id=context["context_id"],
+        diff_fingerprint=context["diff_fingerprint"],
+        stats=stats,
+        notes_file=notes_file,
+        files=files_view,
+    )
 
 
 def parse_review_notes_jsonl(
@@ -208,6 +127,34 @@ def parse_review_notes_jsonl(
     file_summaries_by_path: dict[str, str] = {}
     anchors_by_id: dict[str, dict[str, Any]] = {}
 
+    def reject_record(
+        *,
+        line_no: int,
+        location: str,
+        code: str,
+        warning_detail: str,
+        message: str,
+        record: Any | None = None,
+        raw: str | None = None,
+    ) -> None:
+        issues.append(
+            _warning(
+                code,
+                f"Rejected line {line_no}: {warning_detail}",
+                location,
+            )
+        )
+        rejected_entry: dict[str, Any] = {
+            "line": line_no,
+            "code": code,
+            "message": message,
+        }
+        if record is not None:
+            rejected_entry["record"] = record
+        if raw is not None:
+            rejected_entry["raw"] = raw
+        rejected.append(rejected_entry)
+
     if path.exists():
         for line_no, raw_line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
@@ -220,57 +167,36 @@ def parse_review_notes_jsonl(
             try:
                 record = json.loads(stripped)
             except json.JSONDecodeError as exc:
-                issues.append(
-                    _warning(
-                        "invalid_jsonl",
-                        f"Rejected line {line_no}: invalid JSON ({exc.msg}).",
-                        location,
-                    )
-                )
-                rejected.append(
-                    {
-                        "line": line_no,
-                        "code": "invalid_jsonl",
-                        "message": exc.msg,
-                        "raw": raw_line,
-                    }
+                reject_record(
+                    line_no=line_no,
+                    location=location,
+                    code="invalid_jsonl",
+                    warning_detail=f"invalid JSON ({exc.msg}).",
+                    message=exc.msg,
+                    raw=raw_line,
                 )
                 continue
 
             if not isinstance(record, dict):
-                issues.append(
-                    _warning(
-                        "record_type",
-                        f"Rejected line {line_no}: record must be a JSON object.",
-                        location,
-                    )
-                )
-                rejected.append(
-                    {
-                        "line": line_no,
-                        "code": "record_type",
-                        "message": "record must be a JSON object",
-                        "record": record,
-                    }
+                reject_record(
+                    line_no=line_no,
+                    location=location,
+                    code="record_type",
+                    warning_detail="record must be a JSON object.",
+                    message="record must be a JSON object",
+                    record=record,
                 )
                 continue
 
             record_type = record.get("type")
             if not isinstance(record_type, str) or not record_type.strip():
-                issues.append(
-                    _warning(
-                        "missing_type",
-                        f"Rejected line {line_no}: missing record type.",
-                        location,
-                    )
-                )
-                rejected.append(
-                    {
-                        "line": line_no,
-                        "code": "missing_type",
-                        "message": "missing record type",
-                        "record": record,
-                    }
+                reject_record(
+                    line_no=line_no,
+                    location=location,
+                    code="missing_type",
+                    warning_detail="missing record type.",
+                    message="missing record type",
+                    record=record,
                 )
                 continue
 
@@ -279,20 +205,13 @@ def parse_review_notes_jsonl(
                 if isinstance(text, str) and text.strip():
                     overview.append(text.strip())
                 else:
-                    issues.append(
-                        _warning(
-                            "overview_text",
-                            f"Rejected line {line_no}: overview.text must be non-empty.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "overview_text",
-                            "message": "overview.text must be non-empty",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="overview_text",
+                        warning_detail="overview.text must be non-empty.",
+                        message="overview.text must be non-empty",
+                        record=record,
                     )
                 continue
 
@@ -300,54 +219,33 @@ def parse_review_notes_jsonl(
                 file_path = record.get("path")
                 summary = record.get("summary")
                 if not isinstance(file_path, str) or not file_path:
-                    issues.append(
-                        _warning(
-                            "file_summary_path",
-                            f"Rejected line {line_no}: file_summary.path is required.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "file_summary_path",
-                            "message": "file_summary.path is required",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="file_summary_path",
+                        warning_detail="file_summary.path is required.",
+                        message="file_summary.path is required",
+                        record=record,
                     )
                     continue
                 if file_path not in known_paths:
-                    issues.append(
-                        _warning(
-                            "unknown_file",
-                            f"Rejected line {line_no}: unknown file path {file_path!r}.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "unknown_file",
-                            "message": f"unknown file path {file_path!r}",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="unknown_file",
+                        warning_detail=f"unknown file path {file_path!r}.",
+                        message=f"unknown file path {file_path!r}",
+                        record=record,
                     )
                     continue
                 if not isinstance(summary, str) or not summary.strip():
-                    issues.append(
-                        _warning(
-                            "file_summary_text",
-                            f"Rejected line {line_no}: file_summary.summary must be non-empty.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "file_summary_text",
-                            "message": "file_summary.summary must be non-empty",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="file_summary_text",
+                        warning_detail="file_summary.summary must be non-empty.",
+                        message="file_summary.summary must be non-empty",
+                        record=record,
                     )
                     continue
                 if file_path in file_summaries_by_path:
@@ -366,71 +264,43 @@ def parse_review_notes_jsonl(
                 what_changed = record.get("what_changed")
                 why_changed = record.get("why_changed")
                 if not isinstance(anchor_id, str) or not anchor_id:
-                    issues.append(
-                        _warning(
-                            "missing_anchor_id",
-                            f"Rejected line {line_no}: anchor_note.anchor_id is required.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "missing_anchor_id",
-                            "message": "anchor_note.anchor_id is required",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="missing_anchor_id",
+                        warning_detail="anchor_note.anchor_id is required.",
+                        message="anchor_note.anchor_id is required",
+                        record=record,
                     )
                     continue
                 if anchor_id not in known_anchors:
-                    issues.append(
-                        _warning(
-                            "unknown_anchor_id",
-                            f"Rejected line {line_no}: unknown anchor_id {anchor_id!r}.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "unknown_anchor_id",
-                            "message": f"unknown anchor_id {anchor_id!r}",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="unknown_anchor_id",
+                        warning_detail=f"unknown anchor_id {anchor_id!r}.",
+                        message=f"unknown anchor_id {anchor_id!r}",
+                        record=record,
                     )
                     continue
                 if not isinstance(what_changed, str) or not what_changed.strip():
-                    issues.append(
-                        _warning(
-                            "missing_what_changed",
-                            f"Rejected line {line_no}: what_changed is required.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "missing_what_changed",
-                            "message": "what_changed is required",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="missing_what_changed",
+                        warning_detail="what_changed is required.",
+                        message="what_changed is required",
+                        record=record,
                     )
                     continue
                 if not isinstance(why_changed, str) or not why_changed.strip():
-                    issues.append(
-                        _warning(
-                            "missing_why_changed",
-                            f"Rejected line {line_no}: why_changed is required.",
-                            location,
-                        )
-                    )
-                    rejected.append(
-                        {
-                            "line": line_no,
-                            "code": "missing_why_changed",
-                            "message": "why_changed is required",
-                            "record": record,
-                        }
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="missing_why_changed",
+                        warning_detail="why_changed is required.",
+                        message="why_changed is required",
+                        record=record,
                     )
                     continue
 
@@ -458,20 +328,13 @@ def parse_review_notes_jsonl(
                     if normalized_severity in _ALLOWED_SEVERITIES:
                         note_record["severity"] = normalized_severity
                     else:
-                        issues.append(
-                            _warning(
-                                "bad_severity",
-                                f"Rejected line {line_no}: bad severity {severity!r}.",
-                                location,
-                            )
-                        )
-                        rejected.append(
-                            {
-                                "line": line_no,
-                                "code": "bad_severity",
-                                "message": f"bad severity {severity!r}",
-                                "record": record,
-                            }
+                        reject_record(
+                            line_no=line_no,
+                            location=location,
+                            code="bad_severity",
+                            warning_detail=f"bad severity {severity!r}.",
+                            message=f"bad severity {severity!r}",
+                            record=record,
                         )
                         continue
 
@@ -486,20 +349,13 @@ def parse_review_notes_jsonl(
                 anchors_by_id[anchor_id] = note_record
                 continue
 
-            issues.append(
-                _warning(
-                    "unknown_type",
-                    f"Rejected line {line_no}: unsupported record type {record_type!r}.",
-                    location,
-                )
-            )
-            rejected.append(
-                {
-                    "line": line_no,
-                    "code": "unknown_type",
-                    "message": f"unsupported record type {record_type!r}",
-                    "record": record,
-                }
+            reject_record(
+                line_no=line_no,
+                location=location,
+                code="unknown_type",
+                warning_detail=f"unsupported record type {record_type!r}.",
+                message=f"unsupported record type {record_type!r}",
+                record=record,
             )
 
     context_id = context.get("context_id")
@@ -540,9 +396,24 @@ def write_rejected_notes_jsonl(path: Path, rejected: list[dict[str, Any]]) -> No
     write_text(path, "\n".join(encoded_lines) + "\n")
 
 
-def rewrite_review_notes_jsonl(path: Path, notes_payload: dict[str, Any]) -> None:
-    lines = notes_payload_to_jsonl_lines(notes_payload)
-    if not lines:
-        write_text(path, default_review_notes_template())
+def rewrite_review_notes_jsonl(path: Path, rejected: list[dict[str, Any]]) -> None:
+    if not rejected or not path.exists():
         return
-    write_text(path, "\n".join(lines) + "\n")
+
+    rejected_lines = {
+        line_no for entry in rejected if isinstance(line_no := entry.get("line"), int)
+    }
+    if not rejected_lines:
+        return
+
+    kept_lines = [
+        line
+        for line_no, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if line_no not in rejected_lines
+    ]
+    output = "\n".join(kept_lines)
+    if output:
+        output += "\n"
+    write_text(path, output)

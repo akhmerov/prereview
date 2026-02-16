@@ -15,7 +15,6 @@ from prereview.prepare import (
     collect_patch_text_from_source,
 )
 from prereview.review_io import (
-    default_review_notes_template,
     parse_review_notes_jsonl,
     rewrite_review_notes_jsonl,
     render_review_input,
@@ -283,13 +282,13 @@ def _run_cmd(args: argparse.Namespace) -> int:
 
     write_json(context_path, context)
     if not notes_path.exists():
-        write_text(notes_path, default_review_notes_template())
+        write_text(notes_path, "")
 
     notes_payload, notes_issues, rejected_records = parse_review_notes_jsonl(
         notes_path, context
     )
     if rejected_records:
-        rewrite_review_notes_jsonl(notes_path, notes_payload)
+        rewrite_review_notes_jsonl(notes_path, rejected_records)
     write_rejected_notes_jsonl(rejected_path, rejected_records)
 
     annotations, compile_issues = compile_annotations_from_notes(context, notes_payload)

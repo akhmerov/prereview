@@ -17,8 +17,6 @@ from prereview.prepare import (
     recompute_runtime_from_context,
 )
 from prereview.review_io import (
-    default_review_notes_template,
-    notes_payload_to_jsonl_lines,
     parse_review_notes_jsonl,
     rewrite_review_notes_jsonl,
     render_review_input,
@@ -147,6 +145,26 @@ def _notes_from_context(context: dict[str, object]) -> dict[str, object]:
         "file_summaries": file_summaries,
         "anchors": notes_anchors,
     }
+
+
+def _anchor_states_for_context(
+    context: dict[str, object], *, uncommented: bool
+) -> dict[str, dict[str, object]]:
+    states: dict[str, dict[str, object]] = {}
+    for file_entry in context.get("files", []):
+        if not isinstance(file_entry, dict):
+            continue
+        for anchor in file_entry.get("anchors", []):
+            if not isinstance(anchor, dict):
+                continue
+            anchor_id = anchor.get("anchor_id")
+            if not isinstance(anchor_id, str) or not anchor_id:
+                continue
+            states[anchor_id] = {
+                "uncommented": uncommented,
+                "changed_loc": 0,
+            }
+    return states
 
 
 def test_build_review_context_does_not_store_raw_patch() -> None:
@@ -531,13 +549,18 @@ def test_cli_build_subcommand_is_removed() -> None:
 
 def test_render_review_input_uses_markers_and_anchor_ids() -> None:
     context = _context_from_patch(SAMPLE_PATCH)
-    rendered = render_review_input(context, notes_file="review-notes.jsonl")
+    rendered = render_review_input(
+        context,
+        notes_file="review-notes.jsonl",
+        anchor_states=_anchor_states_for_context(context, uncommented=False),
+    )
 
     assert "PREREVIEW REVIEW INPUT v1" in rendered
     assert "write_notes_to: review-notes.jsonl" in rendered
     assert "CONTEXT START" in rendered
     assert "FILE path=src/demo.py" in rendered
     assert "ANCHOR id=" in rendered
+    assert "uncommented=false changed_loc=0" in rendered
     assert "SNIPPET" in rendered
     assert "CONTEXT END" in rendered
 
@@ -554,7 +577,7 @@ def test_render_review_input_marks_uncommented_hunks_and_embeds_diff() -> None:
         anchor_states={
             anchor_id: {
                 "uncommented": True,
-                "changed_loc": metadata.get("changed_loc"),
+                "changed_loc": metadata["changed_loc"],
                 "diff_lines": [
                     "@@ -1,2 +1,3 @@",
                     " def greet():",
@@ -622,47 +645,29 @@ def test_parse_review_notes_jsonl_rejects_invalid_records(tmp_path: Path) -> Non
     assert len(rejected) == 3
 
 
-def test_rewrite_review_notes_jsonl_writes_template_when_empty(tmp_path: Path) -> None:
-    path = tmp_path / "review-notes.jsonl"
-    rewrite_review_notes_jsonl(
-        path,
-        {
-            "version": "1",
-            "target_context_id": "ctx",
-            "overview": [],
-            "anchors": [],
-        },
+def test_rewrite_review_notes_jsonl_filters_rejected_lines(tmp_path: Path) -> None:
+    notes_path = tmp_path / "review-notes.jsonl"
+    notes_path.write_text(
+        "\n".join(
+            [
+                "# comment",
+                '{"type":"anchor_note","what_changed":"missing id","why_changed":"missing id"}',
+                '{"type":"anchor_note","anchor_id":"ok","what_changed":"x","why_changed":"y"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
     )
-    assert path.read_text(encoding="utf-8") == default_review_notes_template()
 
+    rewrite_review_notes_jsonl(notes_path, [{"line": 2, "code": "missing_anchor_id"}])
 
-def test_notes_payload_to_jsonl_lines_roundtrip_fields() -> None:
-    payload = {
-        "version": "1",
-        "target_context_id": "ctx",
-        "overview": ["Scope: demo."],
-        "file_summaries": [{"path": "src/demo.py", "summary": "Focused update."}],
-        "anchors": [
-            {
-                "anchor_id": "abc",
-                "what_changed": "Updated flow.",
-                "why_changed": "Improve clarity.",
-                "title": "Flow update",
-                "reviewer_focus": "Error paths.",
-                "risk": "Low compatibility risk.",
-                "severity": "note",
-            }
-        ],
-    }
-
-    lines = notes_payload_to_jsonl_lines(payload)
-    assert lines[0] == '{"type":"overview","text":"Scope: demo."}'
-    assert lines[1] == (
-        '{"type":"file_summary","path":"src/demo.py","summary":"Focused update."}'
+    assert notes_path.read_text(encoding="utf-8") == "\n".join(
+        [
+            "# comment",
+            '{"type":"anchor_note","anchor_id":"ok","what_changed":"x","why_changed":"y"}',
+            "",
+        ]
     )
-    assert '"type":"anchor_note"' in lines[2]
-    assert '"anchor_id":"abc"' in lines[2]
-    assert '"severity":"note"' in lines[2]
 
 
 def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
@@ -691,7 +696,7 @@ def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
     assert (artifacts_dir / "review.html").exists()
 
     notes_text = (artifacts_dir / "review-notes.jsonl").read_text(encoding="utf-8")
-    assert default_review_notes_template().strip() in notes_text
+    assert notes_text == ""
 
     input_text = (artifacts_dir / "review-input.txt").read_text(encoding="utf-8")
     assert "ANCHOR id=" in input_text

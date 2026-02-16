@@ -28,7 +28,6 @@ Use this workflow when the task is to generate local rich previews from agent-ge
 - recompute context from current diff;
 - write agent-facing `prereview/review-input.txt`;
 - parse `prereview/review-notes.jsonl`;
-- keep only valid note records in `prereview/review-notes.jsonl`;
 - move malformed/unmappable note lines into `prereview/rejected-notes.jsonl`;
 - build `prereview/review.html` with validation issues shown in the report.
 

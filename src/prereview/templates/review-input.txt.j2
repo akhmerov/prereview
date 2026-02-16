@@ -1,0 +1,25 @@
+PREREVIEW REVIEW INPUT v1
+target_context_id: {{ context_id }}
+diff_fingerprint: {{ diff_fingerprint }}
+stats: files={{ stats.files_changed }} additions={{ stats.additions }} deletions={{ stats.deletions }}
+write_notes_to: {{ notes_file }}
+
+Write JSONL records. Supported record types:
+{"type":"overview","text":"..."}
+{"type":"file_summary","path":"...","summary":"..."}
+{"type":"anchor_note","anchor_id":"...","what_changed":"...","why_changed":"...","title":"...","reviewer_focus":"...","risk":"...","severity":"note"}
+
+CONTEXT START
+{% for file in files %}
+FILE path={{ file.path }} status={{ file.status }}
+{% for anchor in file.anchors %}
+ANCHOR id={{ anchor.anchor_id }} uncommented={{ "true" if anchor.uncommented else "false" }} changed_loc={{ anchor.changed_loc_text }}
+{% if anchor.title %}TITLE {{ anchor.title }}
+{% endif %}{% for snippet in anchor.snippets %}SNIPPET {{ snippet }}
+{% endfor %}{% if anchor.risk_hint %}RISK_HINT {{ anchor.risk_hint }}
+{% endif %}{% if anchor.diff_lines %}DIFF_START
+{% for line in anchor.diff_lines %}{{ line }}
+{% endfor %}DIFF_END
+{% endif %}END_ANCHOR
+{% endfor %}END_FILE
+{% endfor %}CONTEXT END
