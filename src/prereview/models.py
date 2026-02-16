@@ -23,6 +23,7 @@ class Line:
 @dataclass(slots=True)
 class Hunk:
     hunk_id: str
+    stable_hunk_id: str
     old_start: int
     old_count: int
     new_start: int
@@ -33,6 +34,7 @@ class Hunk:
     def to_dict(self) -> dict[str, object]:
         return {
             "hunk_id": self.hunk_id,
+            "stable_hunk_id": self.stable_hunk_id,
             "old_start": self.old_start,
             "old_count": self.old_count,
             "new_start": self.new_start,

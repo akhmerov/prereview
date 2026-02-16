@@ -9,6 +9,7 @@ from prereview.util import hash_text
 _DIFF_GIT_RE = re.compile(r"^diff --git (.+) (.+)$")
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
 _DIFF_PREFIXES = {"a", "b", "i", "w", "c", "o", "1", "2"}
+_LINE_PREFIX_BY_TYPE = {"add": "+", "del": "-", "context": " "}
 
 
 def _normalize_path(value: str) -> str:
@@ -31,6 +32,30 @@ def _normalize_header_path(value: str) -> str | None:
     if path == "/dev/null":
         return None
     return _normalize_path(path)
+
+
+def _stable_hunk_signature(header: str, lines: list[Line]) -> str:
+    parts = [header]
+    for line in lines:
+        prefix = _LINE_PREFIX_BY_TYPE[line.line_type]
+        parts.append(f"{prefix}{line.content}")
+    return "\n".join(parts)
+
+
+def _with_stable_hunk_ordinals(file_patch: FilePatch) -> FilePatch:
+    seen_by_signature: dict[str, int] = {}
+    normalized_hunks: list[Hunk] = []
+    for hunk in file_patch.hunks:
+        base_signature_id = hunk.stable_hunk_id
+        ordinal = seen_by_signature.get(base_signature_id, 0) + 1
+        seen_by_signature[base_signature_id] = ordinal
+        normalized_hunks.append(
+            replace(
+                hunk,
+                stable_hunk_id=hash_text(f"{base_signature_id}:{ordinal}"),
+            )
+        )
+    return replace(file_patch, hunks=normalized_hunks)
 
 
 def _parse_hunk(lines: list[str], start: int, file_path: str) -> tuple[Hunk, int]:
@@ -105,6 +130,7 @@ def _parse_hunk(lines: list[str], start: int, file_path: str) -> tuple[Hunk, int
     )
     hunk = Hunk(
         hunk_id=hash_text(hunk_key),
+        stable_hunk_id=hash_text(_stable_hunk_signature(trailing_header, parsed_lines)),
         old_start=old_start,
         old_count=old_count,
         new_start=new_start,
@@ -184,7 +210,9 @@ def parse_unified_diff(raw_patch: str) -> list[FilePatch]:
         canonical_path = file_patch.new_path or file_patch.old_path or file_patch.path
         file_id = hash_text(canonical_path)
         normalized_files.append(
-            replace(file_patch, file_id=file_id, path=canonical_path)
+            _with_stable_hunk_ordinals(
+                replace(file_patch, file_id=file_id, path=canonical_path)
+            )
         )
 
     return normalized_files

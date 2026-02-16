@@ -283,7 +283,7 @@ def _focus_snippets(lines: list[Line], *, limit: int = 3) -> list[str]:
 
 
 def _anchor_id(path: str, hunk: Hunk) -> str:
-    return hash_text(f"{path}:{hunk.hunk_id}")
+    return hash_text(f"{path}:{hunk.stable_hunk_id}")
 
 
 def _anchor_title(path: str, hunk_index: int) -> str:
@@ -381,10 +381,10 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
         for hunk in file_dict.get("hunks", []):
             if not isinstance(hunk, dict):
                 continue
-            hunk_id = hunk.get("hunk_id")
-            if not isinstance(hunk_id, str) or not hunk_id:
+            stable_hunk_id = hunk.get("stable_hunk_id")
+            if not isinstance(stable_hunk_id, str) or not stable_hunk_id:
                 continue
-            anchor_id = hash_text(f"{path}:{hunk_id}")
+            anchor_id = hash_text(f"{path}:{stable_hunk_id}")
             anchor_line: int | None = None
             for line in hunk.get("lines", []):
                 if (
@@ -397,7 +397,8 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
 
             file_anchor_map[anchor_id] = {
                 "anchor_id": anchor_id,
-                "hunk_id": hunk_id,
+                "hunk_id": hunk.get("hunk_id"),
+                "stable_hunk_id": stable_hunk_id,
                 "new_start": hunk.get("new_start"),
                 "new_end": (
                     hunk.get("new_start", 1) + max(int(hunk.get("new_count", 1)) - 1, 0)

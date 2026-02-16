@@ -37,6 +37,17 @@ index 1111111..2222222 100644
 +    return message
 """
 
+SAMPLE_PATCH_SHIFTED_HEADER = """diff --git a/src/demo.py b/src/demo.py
+index 1111111..2222222 100644
+--- a/src/demo.py
++++ b/src/demo.py
+@@ -11,2 +11,3 @@
+ def greet():
+-    return \"hi\"
++    message = \"hi\"
++    return message
+"""
+
 
 def _context_from_patch(
     patch: str, *, exclude_paths: list[str] | None = None
@@ -1038,6 +1049,50 @@ new file mode 100644
     paths = [file_patch.path for file_patch in files]
     assert "src/demo.py" in paths
     assert "notes.txt" in paths
+
+
+def test_parse_stable_hunk_id_ignores_hunk_line_number_shifts() -> None:
+    original_hunk = parse_unified_diff(SAMPLE_PATCH)[0].hunks[0]
+    shifted_hunk = parse_unified_diff(SAMPLE_PATCH_SHIFTED_HEADER)[0].hunks[0]
+
+    assert original_hunk.hunk_id != shifted_hunk.hunk_id
+    assert original_hunk.stable_hunk_id == shifted_hunk.stable_hunk_id
+
+
+def test_parse_stable_hunk_id_disambiguates_identical_hunks() -> None:
+    patch = """diff --git a/src/repeated.py b/src/repeated.py
+index 1111111..2222222 100644
+--- a/src/repeated.py
++++ b/src/repeated.py
+@@ -1,2 +1,2 @@
+-x = 1
++x = 2
+ unchanged = True
+@@ -11,2 +11,2 @@
+-x = 1
++x = 2
+ unchanged = True
+"""
+    hunks = parse_unified_diff(patch)[0].hunks
+    assert len(hunks) == 2
+    assert hunks[0].stable_hunk_id != hunks[1].stable_hunk_id
+
+
+def test_recompute_runtime_matches_anchors_across_header_shifts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    expected_anchor_id = context["files"][0]["anchors"][0]["anchor_id"]
+
+    monkeypatch.setattr(
+        prepare_module,
+        "collect_patch_text_from_source",
+        lambda _source_spec: SAMPLE_PATCH_SHIFTED_HEADER,
+    )
+    runtime = recompute_runtime_from_context(context)
+    file_anchor_index = runtime["anchor_index"]["src/demo.py"]
+
+    assert expected_anchor_id in file_anchor_index
 
 
 def test_collect_patch_uses_git_pathspec_excludes(
