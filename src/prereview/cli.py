@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from prereview.annotations import compile_annotations_from_notes
+from prereview.models import FilePatch, Hunk
 from prereview.prepare import (
     build_review_context,
     build_source_spec,
@@ -141,12 +142,12 @@ def _normalize_issue(issue: object) -> dict[str, str] | None:
     }
 
 
-def _format_hunk_header(hunk: dict[str, Any]) -> str:
-    old_start_text = hunk["old_start"]
-    old_count_text = hunk["old_count"]
-    new_start_text = hunk["new_start"]
-    new_count_text = hunk["new_count"]
-    trailer = hunk["header"].strip()
+def _format_hunk_header(hunk: Hunk) -> str:
+    old_start_text = hunk.old_start
+    old_count_text = hunk.old_count
+    new_start_text = hunk.new_start
+    new_count_text = hunk.new_count
+    trailer = hunk.header.strip()
     base = (
         f"@@ -{old_start_text},{old_count_text} +{new_start_text},{new_count_text} @@"
     )
@@ -154,7 +155,7 @@ def _format_hunk_header(hunk: dict[str, Any]) -> str:
 
 
 def _render_uncommented_diff_lines(
-    hunk: dict[str, Any],
+    hunk: Hunk,
     *,
     max_lines: int,
     max_chars: int,
@@ -174,14 +175,14 @@ def _render_uncommented_diff_lines(
     if not append_line(_format_hunk_header(hunk)):
         return [], 0, True
 
-    body_lines = hunk["lines"]
+    body_lines = hunk.lines
 
     truncated = False
     for line in body_lines:
-        line_type = line["type"]
+        line_type = line.line_type
         if line_type not in _LINE_PREFIX_BY_TYPE:
             continue
-        content = line["content"]
+        content = line.content
         if not append_line(_LINE_PREFIX_BY_TYPE[line_type] + content):
             truncated = True
             break
@@ -191,13 +192,15 @@ def _render_uncommented_diff_lines(
 
 def _runtime_hunks_by_stable_id(
     runtime: dict[str, Any],
-) -> dict[str, dict[str, dict[str, Any]]]:
+) -> dict[str, dict[str, Hunk]]:
     return {
-        file_entry["path"]: {
-            hunk["stable_hunk_id"]: hunk for hunk in file_entry["hunks"]
-        }
+        file_entry.path: {hunk.stable_hunk_id: hunk for hunk in file_entry.hunks}
         for file_entry in runtime["files"]
     }
+
+
+def _runtime_files_payload(runtime_files: list[FilePatch]) -> list[dict[str, object]]:
+    return [file_patch.to_dict() for file_patch in runtime_files]
 
 
 def _collect_anchor_states(
@@ -348,7 +351,7 @@ def _run_cmd(args: argparse.Namespace) -> int:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": _runtime_files_payload(runtime["files"]),
         },
         render_annotations,
         report,
@@ -550,7 +553,7 @@ def _build_cmd(args: argparse.Namespace) -> int:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": _runtime_files_payload(runtime["files"]),
         },
         render_annotations,
         report,

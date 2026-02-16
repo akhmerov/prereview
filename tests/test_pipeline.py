@@ -276,7 +276,7 @@ def test_render_preserves_indentation() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -311,7 +311,7 @@ def test_render_line_note_meta_shows_severity_only() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -339,7 +339,7 @@ def test_render_uses_readable_hunk_summary_label() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -366,7 +366,7 @@ def test_render_hunk_notes_use_structured_labels() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -397,7 +397,7 @@ def test_render_summary_deduplicates_filename_prefix() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -424,7 +424,7 @@ def test_render_includes_toc_with_file_and_hunk_links() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -454,7 +454,7 @@ def test_render_includes_reviewer_commenting_ui() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -497,7 +497,7 @@ def test_render_file_sections_are_collapsible_from_header() -> None:
     html = render_html(
         {
             "stats": runtime["stats"],
-            "files": runtime["files"],
+            "files": [file_patch.to_dict() for file_patch in runtime["files"]],
         },
         render_annotations,
         report,
@@ -1163,7 +1163,7 @@ new file mode 100644
     )
     context = build_review_context(patch, source_spec)
     runtime = recompute_runtime_from_context(context)
-    paths = [entry["path"] for entry in runtime["files"]]
+    paths = [entry.path for entry in runtime["files"]]
     assert "src/keep.py" in paths
     assert "showcase/out.txt" not in paths
     assert "showcase/nested/out2.txt" not in paths

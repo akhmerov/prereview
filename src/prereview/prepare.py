@@ -354,37 +354,31 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
         exclude_paths,
         exclude_binary=exclude_binary,
     )
-    runtime_files = [file_patch.to_dict() for file_patch in files]
-
     anchor_index: dict[str, dict[str, dict[str, Any]]] = {}
-    for file_dict in runtime_files:
-        path = file_dict["path"]
+    for file_patch in files:
+        path = file_patch.path
         file_anchor_map: dict[str, dict[str, Any]] = {}
-        for hunk in file_dict["hunks"]:
-            stable_hunk_id = hunk["stable_hunk_id"]
+        for hunk in file_patch.hunks:
+            stable_hunk_id = hunk.stable_hunk_id
             anchor_id = hash_text(f"{path}:{stable_hunk_id}")
             anchor_line: int | None = None
             additions = 0
             deletions = 0
-            for line in hunk["lines"]:
-                line_type = line["type"]
+            for line in hunk.lines:
+                line_type = line.line_type
                 if line_type == "add":
                     additions += 1
                 elif line_type == "del":
                     deletions += 1
-                if (
-                    line_type == "add"
-                    and isinstance(line["new_line"], int)
-                    and anchor_line is None
-                ):
-                    anchor_line = line["new_line"]
+                if line_type == "add" and anchor_line is None:
+                    anchor_line = line.new_line
 
             file_anchor_map[anchor_id] = {
                 "anchor_id": anchor_id,
-                "hunk_id": hunk["hunk_id"],
+                "hunk_id": hunk.hunk_id,
                 "stable_hunk_id": stable_hunk_id,
-                "new_start": hunk["new_start"],
-                "new_end": hunk["new_start"] + max(hunk["new_count"] - 1, 0),
+                "new_start": hunk.new_start,
+                "new_end": hunk.new_start + max(hunk.new_count - 1, 0),
                 "anchor_line": anchor_line,
                 "changed_loc": additions + deletions,
             }
@@ -393,6 +387,6 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
     return {
         "diff_fingerprint": hash_text(raw_patch),
         "stats": _stats(files),
-        "files": runtime_files,
+        "files": files,
         "anchor_index": anchor_index,
     }

@@ -33,10 +33,8 @@ def notes_payload_to_jsonl_lines(notes_payload: dict[str, Any]) -> list[str]:
     overview = notes_payload.get("overview")
     if isinstance(overview, list):
         for item in overview:
-            if isinstance(item, str) and item.strip():
-                lines.append(
-                    _compact_json_line({"type": "overview", "text": item.strip()})
-                )
+            if isinstance(item, str) and (text := item.strip()):
+                lines.append(_compact_json_line({"type": "overview", "text": text}))
 
     file_summaries = notes_payload.get("file_summaries")
     if isinstance(file_summaries, list):
@@ -83,8 +81,8 @@ def notes_payload_to_jsonl_lines(notes_payload: dict[str, Any]) -> list[str]:
             }
             for field in ("title", "reviewer_focus", "risk", "severity"):
                 value = anchor.get(field)
-                if isinstance(value, str) and value.strip():
-                    record[field] = value.strip()
+                if isinstance(value, str) and (clean_value := value.strip()):
+                    record[field] = clean_value
 
             lines.append(_compact_json_line(record))
 
@@ -97,18 +95,14 @@ def render_review_input(
     notes_file: str,
     anchor_states: dict[str, dict[str, Any]] | None = None,
 ) -> str:
-    stats = context.get("stats", {})
-    files = context.get("files", [])
-
-    files_changed = int(stats.get("files_changed", 0))
-    additions = int(stats.get("additions", 0))
-    deletions = int(stats.get("deletions", 0))
+    stats = context["stats"]
+    files = context["files"]
 
     lines = [
         "PREREVIEW REVIEW INPUT v1",
-        f"target_context_id: {context.get('context_id', '')}",
-        f"diff_fingerprint: {context.get('diff_fingerprint', '')}",
-        f"stats: files={files_changed} additions={additions} deletions={deletions}",
+        f"target_context_id: {context['context_id']}",
+        f"diff_fingerprint: {context['diff_fingerprint']}",
+        f"stats: files={stats['files_changed']} additions={stats['additions']} deletions={stats['deletions']}",
         f"write_notes_to: {notes_file}",
         "",
         "Write JSONL records. Supported record types:",
@@ -120,19 +114,11 @@ def render_review_input(
     ]
 
     for file_entry in files:
-        if not isinstance(file_entry, dict):
-            continue
-        path = file_entry.get("path")
-        if not isinstance(path, str) or not path:
-            continue
-        status = file_entry.get("status", "modified")
+        path = file_entry["path"]
+        status = file_entry["status"]
         lines.append(f"FILE path={path} status={status}")
-        for anchor in file_entry.get("anchors", []):
-            if not isinstance(anchor, dict):
-                continue
-            anchor_id = anchor.get("anchor_id")
-            if not isinstance(anchor_id, str) or not anchor_id:
-                continue
+        for anchor in file_entry["anchors"]:
+            anchor_id = anchor["anchor_id"]
 
             state = (
                 anchor_states.get(anchor_id, {})
@@ -153,20 +139,19 @@ def render_review_input(
             else:
                 lines.append(f"ANCHOR id={anchor_id}")
 
-            title = anchor.get("title")
-            if isinstance(title, str) and title.strip():
-                lines.append(f"TITLE {title.strip()}")
+            title = anchor.get("title", "").strip()
+            if title:
+                lines.append(f"TITLE {title}")
 
             if uncommented is not True:
-                snippets = anchor.get("focus_snippets")
-                if isinstance(snippets, list):
-                    for snippet in snippets:
-                        if isinstance(snippet, str) and snippet.strip():
-                            lines.append(f"SNIPPET {snippet.strip()}")
+                for snippet in anchor.get("focus_snippets", []):
+                    if isinstance(snippet, str) and (text := snippet.strip()):
+                        lines.append(f"SNIPPET {text}")
 
-            risk_hint = anchor.get("risk_hint")
-            if isinstance(risk_hint, str) and risk_hint.strip():
-                lines.append(f"RISK_HINT {risk_hint.strip()}")
+            if isinstance(risk_hint := anchor.get("risk_hint"), str) and (
+                risk_hint_text := risk_hint.strip()
+            ):
+                lines.append(f"RISK_HINT {risk_hint_text}")
 
             if uncommented:
                 diff_lines = state.get("diff_lines")

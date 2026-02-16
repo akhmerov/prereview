@@ -13,6 +13,101 @@ def _warning(code: str, message: str, location: str) -> dict[str, str]:
     return {"level": "warning", "code": code, "message": message, "location": location}
 
 
+def _is_non_empty_string(value: object) -> bool:
+    return isinstance(value, str) and value.strip() != ""
+
+
+def _validate_overview_field(
+    overview: object,
+    *,
+    issues: list[dict[str, str]],
+    location: str,
+) -> None:
+    if overview is None:
+        return
+    if not isinstance(overview, list) or not all(
+        isinstance(line, str) and line.strip() for line in overview
+    ):
+        issues.append(
+            _error(
+                "overview_type",
+                "overview must be a list of non-empty strings.",
+                location,
+            )
+        )
+        return
+    if len(overview) > 8:
+        issues.append(
+            _warning(
+                "overview_length",
+                "overview should typically be 2-5 lines for reviewer readability.",
+                location,
+            )
+        )
+
+
+def _validate_anchor_fields(
+    anchor: dict[str, Any],
+    *,
+    location: str,
+    issues: list[dict[str, str]],
+) -> None:
+    if not _is_non_empty_string(anchor.get("anchor_id")):
+        issues.append(
+            _error(
+                "anchor_id",
+                "anchor_id must be a non-empty string.",
+                f"{location}.anchor_id",
+            )
+        )
+
+    if not _is_non_empty_string(anchor.get("what_changed")):
+        issues.append(
+            _error(
+                "what_changed",
+                "what_changed must be a non-empty string.",
+                f"{location}.what_changed",
+            )
+        )
+
+    if not _is_non_empty_string(anchor.get("why_changed")):
+        issues.append(
+            _error(
+                "why_changed",
+                "why_changed must be a non-empty string.",
+                f"{location}.why_changed",
+            )
+        )
+
+    if "title" in anchor and not isinstance(anchor.get("title"), str):
+        issues.append(
+            _error("title_type", "title must be a string.", f"{location}.title")
+        )
+
+    if "reviewer_focus" in anchor and not isinstance(anchor.get("reviewer_focus"), str):
+        issues.append(
+            _error(
+                "reviewer_focus_type",
+                "reviewer_focus must be a string.",
+                f"{location}.reviewer_focus",
+            )
+        )
+
+    if "risk" in anchor and not isinstance(anchor.get("risk"), str):
+        issues.append(_error("risk_type", "risk must be a string.", f"{location}.risk"))
+
+    if (
+        severity := anchor.get("severity")
+    ) is not None and severity not in _ALLOWED_SEVERITIES:
+        issues.append(
+            _error(
+                "bad_severity",
+                "severity must be one of info, note, warning, or risk.",
+                f"{location}.severity",
+            )
+        )
+
+
 def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
 
@@ -34,26 +129,9 @@ def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
             )
         )
 
-    overview = annotations.get("overview")
-    if overview is not None:
-        if not isinstance(overview, list) or not all(
-            isinstance(line, str) and line.strip() for line in overview
-        ):
-            issues.append(
-                _error(
-                    "overview_type",
-                    "overview must be a list of non-empty strings.",
-                    "$.overview",
-                )
-            )
-        elif len(overview) > 8:
-            issues.append(
-                _warning(
-                    "overview_length",
-                    "overview should typically be 2-5 lines for reviewer readability.",
-                    "$.overview",
-                )
-            )
+    _validate_overview_field(
+        annotations.get("overview"), issues=issues, location="$.overview"
+    )
 
     files = annotations.get("files")
     if not isinstance(files, list):
@@ -104,68 +182,7 @@ def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
                 )
                 continue
 
-            anchor_id = anchor.get("anchor_id")
-            if not isinstance(anchor_id, str) or not anchor_id:
-                issues.append(
-                    _error(
-                        "anchor_id",
-                        "anchor_id must be a non-empty string.",
-                        f"{anchor_loc}.anchor_id",
-                    )
-                )
-
-            what_changed = anchor.get("what_changed")
-            if not isinstance(what_changed, str) or not what_changed.strip():
-                issues.append(
-                    _error(
-                        "what_changed",
-                        "what_changed must be a non-empty string.",
-                        f"{anchor_loc}.what_changed",
-                    )
-                )
-
-            why_changed = anchor.get("why_changed")
-            if not isinstance(why_changed, str) or not why_changed.strip():
-                issues.append(
-                    _error(
-                        "why_changed",
-                        "why_changed must be a non-empty string.",
-                        f"{anchor_loc}.why_changed",
-                    )
-                )
-
-            if "title" in anchor and not isinstance(anchor.get("title"), str):
-                issues.append(
-                    _error(
-                        "title_type", "title must be a string.", f"{anchor_loc}.title"
-                    )
-                )
-
-            if "reviewer_focus" in anchor and not isinstance(
-                anchor.get("reviewer_focus"), str
-            ):
-                issues.append(
-                    _error(
-                        "reviewer_focus_type",
-                        "reviewer_focus must be a string.",
-                        f"{anchor_loc}.reviewer_focus",
-                    )
-                )
-
-            if "risk" in anchor and not isinstance(anchor.get("risk"), str):
-                issues.append(
-                    _error("risk_type", "risk must be a string.", f"{anchor_loc}.risk")
-                )
-
-            severity = anchor.get("severity")
-            if severity is not None and severity not in _ALLOWED_SEVERITIES:
-                issues.append(
-                    _error(
-                        "bad_severity",
-                        "severity must be one of info, note, warning, or risk.",
-                        f"{anchor_loc}.severity",
-                    )
-                )
+            _validate_anchor_fields(anchor, location=anchor_loc, issues=issues)
 
     return issues
 
@@ -199,26 +216,9 @@ def validate_annotation_notes_schema(notes: Any) -> list[dict[str, str]]:
             )
         )
 
-    overview = notes.get("overview")
-    if overview is not None:
-        if not isinstance(overview, list) or not all(
-            isinstance(line, str) and line.strip() for line in overview
-        ):
-            issues.append(
-                _error(
-                    "overview_type",
-                    "overview must be a list of non-empty strings.",
-                    "$.overview",
-                )
-            )
-        elif len(overview) > 8:
-            issues.append(
-                _warning(
-                    "overview_length",
-                    "overview should typically be 2-5 lines for reviewer readability.",
-                    "$.overview",
-                )
-            )
+    _validate_overview_field(
+        notes.get("overview"), issues=issues, location="$.overview"
+    )
 
     anchors = notes.get("anchors")
     if not isinstance(anchors, list):
@@ -235,7 +235,7 @@ def validate_annotation_notes_schema(notes: Any) -> list[dict[str, str]]:
             continue
 
         anchor_id = anchor.get("anchor_id")
-        if not isinstance(anchor_id, str) or not anchor_id:
+        if not _is_non_empty_string(anchor_id):
             issues.append(
                 _error(
                     "anchor_id",
@@ -254,56 +254,7 @@ def validate_annotation_notes_schema(notes: Any) -> list[dict[str, str]]:
         else:
             seen_anchor_ids.add(anchor_id)
 
-        what_changed = anchor.get("what_changed")
-        if not isinstance(what_changed, str) or not what_changed.strip():
-            issues.append(
-                _error(
-                    "what_changed",
-                    "what_changed must be a non-empty string.",
-                    f"{anchor_loc}.what_changed",
-                )
-            )
-
-        why_changed = anchor.get("why_changed")
-        if not isinstance(why_changed, str) or not why_changed.strip():
-            issues.append(
-                _error(
-                    "why_changed",
-                    "why_changed must be a non-empty string.",
-                    f"{anchor_loc}.why_changed",
-                )
-            )
-
-        if "title" in anchor and not isinstance(anchor.get("title"), str):
-            issues.append(
-                _error("title_type", "title must be a string.", f"{anchor_loc}.title")
-            )
-
-        if "reviewer_focus" in anchor and not isinstance(
-            anchor.get("reviewer_focus"), str
-        ):
-            issues.append(
-                _error(
-                    "reviewer_focus_type",
-                    "reviewer_focus must be a string.",
-                    f"{anchor_loc}.reviewer_focus",
-                )
-            )
-
-        if "risk" in anchor and not isinstance(anchor.get("risk"), str):
-            issues.append(
-                _error("risk_type", "risk must be a string.", f"{anchor_loc}.risk")
-            )
-
-        severity = anchor.get("severity")
-        if severity is not None and severity not in _ALLOWED_SEVERITIES:
-            issues.append(
-                _error(
-                    "bad_severity",
-                    "severity must be one of info, note, warning, or risk.",
-                    f"{anchor_loc}.severity",
-                )
-            )
+        _validate_anchor_fields(anchor, location=anchor_loc, issues=issues)
 
     file_summaries = notes.get("file_summaries")
     if file_summaries is not None:
@@ -356,101 +307,89 @@ def compile_annotations_from_notes(
     issues: list[dict[str, str]] = []
     issues.extend(validate_annotation_notes_schema(notes))
 
-    notes_obj = notes if isinstance(notes, dict) else {}
-    context_obj = context if isinstance(context, dict) else {}
+    if not isinstance(notes, dict) or not isinstance(context, dict):
+        return {
+            "version": "2",
+            "target_context_id": "",
+            "overview": [],
+            "files": [],
+        }, issues
 
     file_order: list[str] = []
     known_paths: set[str] = set()
     anchor_to_path: dict[str, str] = {}
     anchor_default_title: dict[str, str] = {}
 
-    for file_entry in context_obj.get("files", []):
-        if not isinstance(file_entry, dict):
-            continue
-        path = file_entry.get("path")
-        if not isinstance(path, str) or not path:
-            continue
+    for file_entry in context["files"]:
+        path = file_entry["path"]
         file_order.append(path)
         known_paths.add(path)
-        for anchor in file_entry.get("anchors", []):
-            if not isinstance(anchor, dict):
-                continue
-            anchor_id = anchor.get("anchor_id")
-            if not isinstance(anchor_id, str) or not anchor_id:
-                continue
+        for anchor in file_entry["anchors"]:
+            anchor_id = anchor["anchor_id"]
             anchor_to_path[anchor_id] = path
-            title = anchor.get("title")
-            if isinstance(title, str) and title.strip():
+            title = anchor["title"] if "title" in anchor else None
+            if _is_non_empty_string(title):
                 anchor_default_title[anchor_id] = title
 
     anchors_by_file: dict[str, list[dict[str, Any]]] = {}
-    notes_anchors = notes_obj.get("anchors")
-    if isinstance(notes_anchors, list):
-        for anchor_idx, anchor_note in enumerate(notes_anchors):
-            if not isinstance(anchor_note, dict):
-                continue
-            anchor_id = anchor_note.get("anchor_id")
-            if not isinstance(anchor_id, str) or not anchor_id:
-                continue
+    for anchor_idx, anchor_note in enumerate(notes["anchors"]):
+        anchor_id = anchor_note["anchor_id"]
 
-            path = anchor_to_path.get(anchor_id)
-            if path is None:
-                issues.append(
-                    _error(
-                        "unknown_anchor",
-                        f"anchor_id {anchor_id!r} was not found in context.",
-                        f"$.anchors[{anchor_idx}].anchor_id",
-                    )
+        path = anchor_to_path.get(anchor_id)
+        if path is None:
+            issues.append(
+                _error(
+                    "unknown_anchor",
+                    f"anchor_id {anchor_id!r} was not found in context.",
+                    f"$.anchors[{anchor_idx}].anchor_id",
                 )
-                continue
+            )
+            continue
 
-            compiled_anchor: dict[str, Any] = {
-                "anchor_id": anchor_id,
-                "what_changed": str(anchor_note.get("what_changed", "")).strip(),
-                "why_changed": str(anchor_note.get("why_changed", "")).strip(),
-            }
+        compiled_anchor: dict[str, Any] = {
+            "anchor_id": anchor_id,
+            "what_changed": anchor_note["what_changed"].strip(),
+            "why_changed": anchor_note["why_changed"].strip(),
+        }
 
-            title = anchor_note.get("title")
-            if isinstance(title, str) and title.strip():
-                compiled_anchor["title"] = title.strip()
-            elif anchor_id in anchor_default_title:
-                compiled_anchor["title"] = anchor_default_title[anchor_id]
+        title = anchor_note["title"] if "title" in anchor_note else None
+        if _is_non_empty_string(title):
+            compiled_anchor["title"] = title.strip()
+        elif anchor_id in anchor_default_title:
+            compiled_anchor["title"] = anchor_default_title[anchor_id]
 
-            reviewer_focus = anchor_note.get("reviewer_focus")
-            if isinstance(reviewer_focus, str) and reviewer_focus.strip():
-                compiled_anchor["reviewer_focus"] = reviewer_focus.strip()
+        reviewer_focus = (
+            anchor_note["reviewer_focus"] if "reviewer_focus" in anchor_note else None
+        )
+        if _is_non_empty_string(reviewer_focus):
+            compiled_anchor["reviewer_focus"] = reviewer_focus.strip()
 
-            risk = anchor_note.get("risk")
-            if isinstance(risk, str) and risk.strip():
-                compiled_anchor["risk"] = risk.strip()
+        risk = anchor_note["risk"] if "risk" in anchor_note else None
+        if _is_non_empty_string(risk):
+            compiled_anchor["risk"] = risk.strip()
 
-            severity = anchor_note.get("severity")
-            if isinstance(severity, str) and severity.strip():
-                compiled_anchor["severity"] = severity.strip()
+        severity = anchor_note["severity"] if "severity" in anchor_note else None
+        if _is_non_empty_string(severity):
+            compiled_anchor["severity"] = severity.strip()
 
-            anchors_by_file.setdefault(path, []).append(compiled_anchor)
+        anchors_by_file.setdefault(path, []).append(compiled_anchor)
 
     summary_by_path: dict[str, str] = {}
-    file_summaries = notes_obj.get("file_summaries")
-    if isinstance(file_summaries, list):
-        for summary_idx, summary_entry in enumerate(file_summaries):
-            if not isinstance(summary_entry, dict):
-                continue
-            path = summary_entry.get("path")
-            summary = summary_entry.get("summary")
-            if not isinstance(path, str) or not path:
-                continue
-            if path not in known_paths:
-                issues.append(
-                    _error(
-                        "unknown_file",
-                        f"file summary path {path!r} was not found in context.",
-                        f"$.file_summaries[{summary_idx}].path",
-                    )
+    for summary_idx, summary_entry in enumerate(
+        notes["file_summaries"] if "file_summaries" in notes else []
+    ):
+        path = summary_entry["path"]
+        summary = summary_entry["summary"]
+        if path not in known_paths:
+            issues.append(
+                _error(
+                    "unknown_file",
+                    f"file summary path {path!r} was not found in context.",
+                    f"$.file_summaries[{summary_idx}].path",
                 )
-                continue
-            if isinstance(summary, str) and summary.strip():
-                summary_by_path[path] = summary.strip()
+            )
+            continue
+        summary_by_path[path] = summary.strip()
 
     annotation_files: list[dict[str, Any]] = []
     for path in file_order:
@@ -467,11 +406,11 @@ def compile_annotations_from_notes(
             file_entry["summary"] = summary
         annotation_files.append(file_entry)
 
-    overview = notes_obj.get("overview")
+    overview = notes.get("overview", [])
     compiled: dict[str, Any] = {
         "version": "2",
-        "target_context_id": notes_obj.get("target_context_id", ""),
-        "overview": overview if isinstance(overview, list) else [],
+        "target_context_id": notes["target_context_id"],
+        "overview": overview,
         "files": annotation_files,
     }
     return compiled, issues

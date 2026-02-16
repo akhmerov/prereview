@@ -97,7 +97,7 @@ def evaluate_annotations(
         and isinstance(annotations.get("files"), list)
     ):
         runtime_file_paths = {
-            file_entry["path"]: file_entry for file_entry in runtime["files"]
+            file_entry.path: file_entry for file_entry in runtime["files"]
         }
         anchor_index = runtime["anchor_index"]
 
@@ -183,7 +183,7 @@ def materialize_annotations_for_render(
 
     render_files: list[dict[str, Any]] = []
     for runtime_file in runtime_files:
-        path = runtime_file["path"]
+        path = runtime_file.path
         file_annotation = (
             annotations_by_file[path]
             if path in annotations_by_file
