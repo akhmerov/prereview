@@ -10,13 +10,19 @@ Repository: `https://gitlab.kwant-project.org/anton-akhmerov/prereview.git`
 prereview
 ```
 
-This creates a `review/` workspace with:
+This creates a `prereview/` workspace with:
 
-- `review/review.html` (open this report in the browser)
-- `review/review-input.txt` (agent-facing context)
-- `review/review-notes.jsonl` (agent-authored notes)
+- `prereview/review.html` (open this report in the browser)
+- `prereview/review-input.txt` (agent-facing context)
+- `prereview/review-notes.jsonl` (agent-authored notes)
 
-After updating `review/review-notes.jsonl`, run `prereview` again to rebuild the report.
+After updating `prereview/review-notes.jsonl`, run `prereview` again to rebuild the report.
+
+To remove artifacts and unregister local git excludes:
+
+```bash
+prereview clean
+```
 
 ## Install / run
 

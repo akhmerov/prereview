@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +35,7 @@ def _ensure_artifacts_workspace(path: Path) -> None:
     write_text(gitignore_path, "*\n")
 
 
-def _ensure_git_info_exclude(path: Path) -> None:
+def _git_exclude_entry(path: Path) -> tuple[Path, str] | None:
     try:
         repo_root_proc = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -65,12 +66,20 @@ def _ensure_git_info_exclude(path: Path) -> None:
 
     normalized = relative.as_posix().strip().strip("/")
     if not normalized:
-        return
+        return None
 
     ignore_pattern = f"/{normalized}/"
     exclude_path = Path(exclude_path_proc.stdout.strip())
     if not exclude_path.is_absolute():
         exclude_path = (Path.cwd() / exclude_path).resolve()
+    return exclude_path, ignore_pattern
+
+
+def _ensure_git_info_exclude(path: Path) -> None:
+    entry = _git_exclude_entry(path)
+    if entry is None:
+        return
+    exclude_path, ignore_pattern = entry
 
     ensure_parent(exclude_path)
     current_text = (
@@ -84,6 +93,25 @@ def _ensure_git_info_exclude(path: Path) -> None:
         if prefix:
             handle.write(prefix)
         handle.write(ignore_pattern + "\n")
+
+
+def _remove_git_info_exclude(path: Path) -> None:
+    entry = _git_exclude_entry(path)
+    if entry is None:
+        return
+    exclude_path, ignore_pattern = entry
+    if not exclude_path.exists():
+        return
+
+    lines = exclude_path.read_text(encoding="utf-8").splitlines()
+    filtered = [line for line in lines if line != ignore_pattern]
+    if filtered == lines:
+        return
+
+    if not filtered:
+        exclude_path.write_text("", encoding="utf-8")
+        return
+    exclude_path.write_text("\n".join(filtered) + "\n", encoding="utf-8")
 
 
 def _normalize_issue(issue: object) -> dict[str, str] | None:
@@ -211,6 +239,21 @@ def _run_cmd(args: argparse.Namespace) -> int:
     print(f"Parsed notes file: {notes_path}")
     print(f"Rejected notes: {len(rejected_records)} -> {rejected_path}")
     print(f"Built static preview at {html_path}")
+    return 0
+
+
+def _clean_cmd(args: argparse.Namespace) -> int:
+    artifacts_dir = args.artifacts_dir
+    _remove_git_info_exclude(artifacts_dir)
+
+    if artifacts_dir.exists():
+        if artifacts_dir.is_dir():
+            shutil.rmtree(artifacts_dir)
+        else:
+            artifacts_dir.unlink()
+        print(f"Removed artifacts workspace: {artifacts_dir}")
+    else:
+        print(f"No artifacts workspace found at: {artifacts_dir}")
     return 0
 
 
@@ -395,7 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--artifacts-dir",
         type=Path,
-        default=Path("review"),
+        default=Path("prereview"),
         help="Directory for generated review artifacts.",
     )
     parser.add_argument(
@@ -425,6 +468,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    clean_parser = subparsers.add_parser(
+        "clean",
+        help="Delete artifacts workspace and remove it from local git excludes.",
+    )
+    clean_parser.set_defaults(func=_clean_cmd)
 
     prepare_parser = subparsers.add_parser(
         "prepare-context", help="Prepare reviewer-focused context input."

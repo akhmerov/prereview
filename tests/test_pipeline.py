@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -826,7 +828,7 @@ def test_notes_payload_to_jsonl_lines_roundtrip_fields() -> None:
 
 def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
-    artifacts_dir = tmp_path / "review"
+    artifacts_dir = tmp_path / "prereview"
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
 
     assert (
@@ -859,7 +861,7 @@ def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
 
 def test_cli_run_writes_rejected_notes_for_bad_jsonl(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
-    artifacts_dir = tmp_path / "review"
+    artifacts_dir = tmp_path / "prereview"
     notes_path = artifacts_dir / "review-notes.jsonl"
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
 
@@ -909,7 +911,7 @@ def test_cli_run_writes_rejected_notes_for_bad_jsonl(tmp_path: Path) -> None:
 
 def test_cli_no_subcommand_defaults_to_run(tmp_path: Path) -> None:
     patch_path = tmp_path / "change.patch"
-    artifacts_dir = tmp_path / "review"
+    artifacts_dir = tmp_path / "prereview"
     patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
 
     assert (
@@ -935,6 +937,47 @@ def test_cli_run_subcommand_is_removed() -> None:
 def test_cli_default_excludes_untracked_in_run_mode() -> None:
     args = build_parser().parse_args([])
     assert args.include_untracked is False
+    assert args.artifacts_dir == Path("prereview")
+
+
+def test_cli_clean_removes_workspace_outside_git(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path / "prereview"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "review.html").write_text("x", encoding="utf-8")
+
+    cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        assert main(["clean"]) == 0
+    finally:
+        os.chdir(cwd)
+
+    assert not artifacts_dir.exists()
+
+
+def test_cli_clean_removes_workspace_and_local_exclude(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    artifacts_dir = tmp_path / "prereview"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "review.html").write_text("x", encoding="utf-8")
+
+    exclude_path = tmp_path / ".git" / "info" / "exclude"
+    exclude_path.write_text("/prereview/\n/keep-me/\n", encoding="utf-8")
+
+    cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        assert main(["clean"]) == 0
+    finally:
+        os.chdir(cwd)
+
+    assert not artifacts_dir.exists()
+    updated = exclude_path.read_text(encoding="utf-8")
+    assert "/prereview/" not in updated
+    assert "/keep-me/" in updated
 
 
 def test_recompute_runtime_excludes_nested_paths() -> None:
