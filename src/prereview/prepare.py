@@ -39,7 +39,7 @@ def _run_git_command(args: list[str], *, max_output_bytes: int | None = None) ->
                 proc.wait()
                 raise RuntimeError(
                     "Diff output exceeded safe size budget "
-                    f"({max_output_bytes} bytes). Narrow scope with --exclude-path."
+                    f"({max_output_bytes} bytes). Narrow scope with --include."
                 )
             chunks.append(chunk)
 
@@ -68,14 +68,14 @@ def _read_patch_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _build_untracked_patch(exclude_paths: list[str]) -> str:
+def _build_untracked_patch(include_paths: list[str]) -> str:
     names = _run_git_command(
         ["ls-files", "--others", "--exclude-standard"]
     ).splitlines()
     chunks: list[str] = []
     total_bytes = 0
     for name in names:
-        if _is_excluded(name, exclude_paths):
+        if not _matches_include_patterns(name, include_paths):
             continue
         file_path = Path(name)
         if not file_path.is_file():
@@ -88,7 +88,7 @@ def _build_untracked_patch(exclude_paths: list[str]) -> str:
         if file_size > _MAX_UNTRACKED_FILE_BYTES:
             raise RuntimeError(
                 "Refusing to include oversized untracked file "
-                f"{name!r} ({file_size} bytes). Use --exclude-path to filter generated artifacts."
+                f"{name!r} ({file_size} bytes). Narrow scope with --include."
             )
 
         patch_text = _run_git_command(
@@ -103,7 +103,7 @@ def _build_untracked_patch(exclude_paths: list[str]) -> str:
         if total_bytes > _MAX_UNTRACKED_PATCH_BYTES:
             raise RuntimeError(
                 "Untracked diff payload exceeded safe size budget "
-                f"({_MAX_UNTRACKED_PATCH_BYTES} bytes). Use --exclude-path to scope generated artifacts."
+                f"({_MAX_UNTRACKED_PATCH_BYTES} bytes). Narrow scope with --include."
             )
         chunks.append(patch_piece)
     if not chunks:
@@ -115,9 +115,7 @@ def build_source_spec(
     *,
     patch_file: Path | None,
     git_range: str | None,
-    include_untracked: bool,
-    exclude_paths: list[str],
-    exclude_binary: bool = True,
+    include_paths: list[str],
 ) -> dict[str, Any]:
     if patch_file is not None:
         mode = "patch-file"
@@ -130,18 +128,16 @@ def build_source_spec(
         "mode": mode,
         "patch_file": str(patch_file.resolve()) if patch_file is not None else None,
         "git_range": git_range,
-        "include_untracked": include_untracked,
-        "exclude_binary": exclude_binary,
-        "exclude_paths": exclude_paths,
+        "include_paths": include_paths,
     }
     return source_spec
 
 
 def collect_patch_text_from_source(source_spec: dict[str, Any]) -> str:
-    exclude_patterns = source_spec["exclude_paths"]
-    exclude_pathspecs = [
-        f":(exclude,glob){pattern.lstrip('./')}"
-        for pattern in exclude_patterns
+    include_patterns = source_spec["include_paths"]
+    include_pathspecs = [
+        f":(glob){pattern.lstrip('./')}"
+        for pattern in include_patterns
         if pattern.strip()
     ]
 
@@ -150,19 +146,19 @@ def collect_patch_text_from_source(source_spec: dict[str, Any]) -> str:
         raw_patch = _read_patch_file(Path(source_spec["patch_file"]))
     elif mode == "git-range":
         args = ["diff", source_spec["git_range"]]
-        if exclude_pathspecs:
-            args.extend(["--", ".", *exclude_pathspecs])
+        if include_pathspecs:
+            args.extend(["--", *include_pathspecs])
         raw_patch = _run_git_command(args, max_output_bytes=_MAX_TRACKED_PATCH_BYTES)
     elif mode == "working-tree":
         args = ["diff", "HEAD"]
-        if exclude_pathspecs:
-            args.extend(["--", ".", *exclude_pathspecs])
+        if include_pathspecs:
+            args.extend(["--", *include_pathspecs])
         raw_patch = _run_git_command(args, max_output_bytes=_MAX_TRACKED_PATCH_BYTES)
     else:
         raise RuntimeError(f"Unsupported source mode: {mode}")
 
-    if source_spec["include_untracked"]:
-        untracked_patch = _build_untracked_patch(exclude_patterns)
+    if include_patterns:
+        untracked_patch = _build_untracked_patch(include_patterns)
         if untracked_patch:
             if raw_patch and not raw_patch.endswith("\n"):
                 raw_patch += "\n"
@@ -171,9 +167,12 @@ def collect_patch_text_from_source(source_spec: dict[str, Any]) -> str:
     return raw_patch
 
 
-def _is_excluded(path: str, exclude_paths: list[str]) -> bool:
+def _matches_include_patterns(path: str, include_paths: list[str]) -> bool:
+    if not include_paths:
+        return True
+
     normalized = str(PurePosixPath(path)).lstrip("./")
-    for pattern in exclude_paths:
+    for pattern in include_paths:
         normalized_pattern = pattern.strip().lstrip("./")
         if not normalized_pattern:
             continue
@@ -186,13 +185,15 @@ def _is_excluded(path: str, exclude_paths: list[str]) -> bool:
     return False
 
 
-def _parse_files(
-    raw_patch: str, exclude_paths: list[str], *, exclude_binary: bool
-) -> list[FilePatch]:
+def _parse_files(raw_patch: str, include_paths: list[str]) -> list[FilePatch]:
     files = parse_unified_diff(raw_patch)
-    if exclude_paths:
-        files = [file for file in files if not _is_excluded(file.path, exclude_paths)]
-    if exclude_binary:
+    if include_paths:
+        files = [
+            file
+            for file in files
+            if _matches_include_patterns(file.path, include_paths)
+        ]
+    else:
         files = [file for file in files if not file.is_binary]
     return files
 
@@ -220,7 +221,7 @@ def _risk_hint(lines: list[Line]) -> str | None:
         ("check=False", "error handling behavior changed"),
         ("shell=True", "command execution safety assumptions changed"),
         ("re.compile(", "pattern matching/parsing behavior changed"),
-        ("exclude_path", "review scoping behavior changed"),
+        ("--include", "review scoping behavior changed"),
         ("strict", "validation strictness behavior changed"),
         ("raise ", "error propagation behavior changed"),
         ("except ", "error handling branches changed"),
@@ -302,14 +303,8 @@ def _build_context_files(files: list[FilePatch]) -> list[dict[str, Any]]:
 
 
 def build_review_context(raw_patch: str, source_spec: dict[str, Any]) -> dict[str, Any]:
-    exclude_paths = source_spec["exclude_paths"]
-    exclude_binary = source_spec["exclude_binary"]
-
-    files = _parse_files(
-        raw_patch,
-        exclude_paths,
-        exclude_binary=exclude_binary,
-    )
+    include_paths = source_spec["include_paths"]
+    files = _parse_files(raw_patch, include_paths)
     diff_fingerprint = hash_text(raw_patch)
     context_files = _build_context_files(files)
 
@@ -346,14 +341,8 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("Context is missing source_spec.")
 
     raw_patch = collect_patch_text_from_source(source_spec)
-    exclude_paths = source_spec["exclude_paths"]
-    exclude_binary = source_spec["exclude_binary"]
-
-    files = _parse_files(
-        raw_patch,
-        exclude_paths,
-        exclude_binary=exclude_binary,
-    )
+    include_paths = source_spec["include_paths"]
+    files = _parse_files(raw_patch, include_paths)
     anchor_index: dict[str, dict[str, dict[str, Any]]] = {}
     for file_patch in files:
         path = file_patch.path

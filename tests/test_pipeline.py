@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -51,15 +50,14 @@ index 1111111..2222222 100644
 
 
 def _context_from_patch(
-    patch: str, *, exclude_paths: list[str] | None = None
+    patch: str, *, include_paths: list[str] | None = None
 ) -> dict[str, object]:
     patch_path = Path("/tmp/prereview-context.patch")
     patch_path.write_text(patch, encoding="utf-8")
     source_spec = build_source_spec(
         patch_file=patch_path,
         git_range=None,
-        include_untracked=False,
-        exclude_paths=exclude_paths or [],
+        include_paths=include_paths or [],
     )
     return build_review_context(patch, source_spec)
 
@@ -513,248 +511,22 @@ def test_render_file_sections_are_collapsible_from_header() -> None:
     assert 'parent.parentElement.closest("details")' in html
 
 
-def test_cli_context_pipeline(tmp_path: Path) -> None:
-    patch_path = tmp_path / "change.patch"
-    context_path = tmp_path / "review-context.json"
-    notes_path = tmp_path / "annotation-notes.json"
-    html_path = tmp_path / "preview.html"
-
-    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
-
-    assert (
-        main(
-            [
-                "prepare-context",
-                "--patch-file",
-                str(patch_path),
-                "--out",
-                str(context_path),
-            ]
-        )
-        == 0
-    )
-
-    context = json.loads(context_path.read_text(encoding="utf-8"))
-    notes = _notes_from_context(context)
-    notes_path.write_text(json.dumps(notes), encoding="utf-8")
-
-    assert (
-        main(
-            [
-                "build",
-                "--context",
-                str(context_path),
-                "--notes",
-                str(notes_path),
-                "--output",
-                str(html_path),
-            ]
-        )
-        == 0
-    )
-
-    rendered = html_path.read_text(encoding="utf-8")
-    assert "Review Overview" in rendered
-    assert "src/demo.py" in rendered
-    assert "prereview-embedded-data" in rendered
-    assert '"validation_report"' in rendered
-    assert '"annotation_notes"' in rendered
-    assert not context_path.exists()
-    assert not notes_path.exists()
-
-
-def test_cli_build_keep_inputs_opt_out(tmp_path: Path) -> None:
-    patch_path = tmp_path / "change.patch"
-    context_path = tmp_path / "review-context.json"
-    notes_path = tmp_path / "annotation-notes.json"
-    html_path = tmp_path / "review.html"
-
-    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
-
-    assert (
-        main(
-            [
-                "prepare-context",
-                "--patch-file",
-                str(patch_path),
-                "--out",
-                str(context_path),
-            ]
-        )
-        == 0
-    )
-    context = json.loads(context_path.read_text(encoding="utf-8"))
-    notes = _notes_from_context(context)
-    notes_path.write_text(json.dumps(notes), encoding="utf-8")
-    assert (
-        main(
-            [
-                "build",
-                "--context",
-                str(context_path),
-                "--notes",
-                str(notes_path),
-                "--output",
-                str(html_path),
-                "--keep-inputs",
-            ]
-        )
-        == 0
-    )
-
-    assert context_path.exists()
-    assert notes_path.exists()
-    rendered = html_path.read_text(encoding="utf-8")
-    assert "prereview-embedded-data" in rendered
-
-
-def test_cli_build_failure_prints_fix_guidance(tmp_path: Path) -> None:
-    patch_path = tmp_path / "change.patch"
-    context_path = tmp_path / "review-context.json"
-    notes_path = tmp_path / "annotation-notes.json"
-    html_path = tmp_path / "review.html"
-
-    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
-
-    assert (
-        main(
-            [
-                "prepare-context",
-                "--patch-file",
-                str(patch_path),
-                "--out",
-                str(context_path),
-            ]
-        )
-        == 0
-    )
-
-    context = json.loads(context_path.read_text(encoding="utf-8"))
-    broken_notes = {
-        "version": "1",
-        "target_context_id": context["context_id"],
-        "overview": ["Scope: 1 file."],
-        "anchors": [
-            {
-                "anchor_id": "missing-anchor-id",
-                "title": "Bad anchor",
-                "what_changed": "placeholder",
-                "why_changed": "placeholder",
-            }
-        ],
-    }
-    notes_path.write_text(json.dumps(broken_notes), encoding="utf-8")
-
-    with pytest.raises(SystemExit) as excinfo:
-        main(
-            [
-                "build",
-                "--context",
-                str(context_path),
-                "--notes",
-                str(notes_path),
-                "--output",
-                str(html_path),
-            ]
-        )
-
-    message = str(excinfo.value)
-    assert "Build validation failed" in message
-    assert "Agent action:" in message
-    assert "unknown_anchor" in message
-    assert "Rerun after fixes:" in message
-    assert "draft-annotations" not in message
-    assert context_path.exists()
-    assert notes_path.exists()
-    assert not html_path.exists()
-
-
-def test_cli_build_defaults_to_root_review_html(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    patch_path = tmp_path / "change.patch"
-    context_path = tmp_path / "review-context.json"
-    notes_path = tmp_path / "annotation-notes.json"
-
-    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-
-    assert (
-        main(
-            [
-                "prepare-context",
-                "--patch-file",
-                str(patch_path),
-                "--out",
-                str(context_path),
-            ]
-        )
-        == 0
-    )
-    context = json.loads(context_path.read_text(encoding="utf-8"))
-    notes = _notes_from_context(context)
-    notes_path.write_text(json.dumps(notes), encoding="utf-8")
-    assert (
-        main(
-            [
-                "build",
-                "--context",
-                str(context_path),
-                "--notes",
-                str(notes_path),
-            ]
-        )
-        == 0
-    )
-
-    assert (tmp_path / "review.html").exists()
-
-
 def test_cli_draft_annotations_subcommand_is_removed() -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["draft-annotations"])
     assert excinfo.value.code == 2
 
 
-def test_cli_build_supports_legacy_annotations_input(tmp_path: Path) -> None:
-    patch_path = tmp_path / "change.patch"
-    context_path = tmp_path / "review-context.json"
-    annotations_path = tmp_path / "annotations.json"
-    html_path = tmp_path / "legacy-preview.html"
+def test_cli_prepare_context_subcommand_is_removed() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["prepare-context"])
+    assert excinfo.value.code == 2
 
-    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
 
-    assert (
-        main(
-            [
-                "prepare-context",
-                "--patch-file",
-                str(patch_path),
-                "--out",
-                str(context_path),
-            ]
-        )
-        == 0
-    )
-    context = json.loads(context_path.read_text(encoding="utf-8"))
-    annotations = _annotations_from_context(context)
-    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
-
-    assert (
-        main(
-            [
-                "build",
-                "--context",
-                str(context_path),
-                "--annotations",
-                str(annotations_path),
-                "--output",
-                str(html_path),
-            ]
-        )
-        == 0
-    )
-    assert html_path.exists()
+def test_cli_build_subcommand_is_removed() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["build"])
+    assert excinfo.value.code == 2
 
 
 def test_render_review_input_uses_markers_and_anchor_ids() -> None:
@@ -1085,9 +857,9 @@ def test_cli_run_subcommand_is_removed() -> None:
     assert excinfo.value.code == 2
 
 
-def test_cli_default_excludes_untracked_in_run_mode() -> None:
+def test_cli_default_include_paths_in_run_mode() -> None:
     args = build_parser().parse_args([])
-    assert args.include_untracked is False
+    assert args.include == []
     assert args.artifacts_dir == Path("prereview")
 
 
@@ -1131,7 +903,7 @@ def test_cli_clean_removes_workspace_and_local_exclude(
     assert "/keep-me/" in updated
 
 
-def test_recompute_runtime_excludes_nested_paths() -> None:
+def test_recompute_runtime_include_paths_filters_to_selected_files() -> None:
     patch = """diff --git a/showcase/out.txt b/showcase/out.txt
 new file mode 100644
 --- /dev/null
@@ -1158,8 +930,7 @@ new file mode 100644
     source_spec = build_source_spec(
         patch_file=tmp_patch,
         git_range=None,
-        include_untracked=False,
-        exclude_paths=["showcase/**"],
+        include_paths=["src/**"],
     )
     context = build_review_context(patch, source_spec)
     runtime = recompute_runtime_from_context(context)
@@ -1234,7 +1005,7 @@ def test_recompute_runtime_matches_anchors_across_header_shifts(
     assert expected_anchor_id in file_anchor_index
 
 
-def test_collect_patch_uses_git_pathspec_excludes(
+def test_collect_patch_uses_git_pathspec_includes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[tuple[list[str], int | None]] = []
@@ -1246,8 +1017,7 @@ def test_collect_patch_uses_git_pathspec_excludes(
     monkeypatch.setattr(prepare_module, "_run_git_command", fake_run)
     source_spec = {
         "mode": "working-tree",
-        "include_untracked": False,
-        "exclude_paths": ["showcase/**", "./tmp/**"],
+        "include_paths": ["showcase/**", "./tmp/**"],
     }
 
     patch = prepare_module.collect_patch_text_from_source(source_spec)
@@ -1256,9 +1026,8 @@ def test_collect_patch_uses_git_pathspec_excludes(
         "diff",
         "HEAD",
         "--",
-        ".",
-        ":(exclude,glob)showcase/**",
-        ":(exclude,glob)tmp/**",
+        ":(glob)showcase/**",
+        ":(glob)tmp/**",
     ]
     assert captured[0][1] == prepare_module._MAX_TRACKED_PATCH_BYTES
 
@@ -1280,7 +1049,7 @@ def test_build_untracked_patch_rejects_oversized_files(
     monkeypatch.setattr(prepare_module, "_MAX_UNTRACKED_FILE_BYTES", 8)
 
     with pytest.raises(RuntimeError, match="oversized untracked file"):
-        prepare_module._build_untracked_patch([])
+        prepare_module._build_untracked_patch(["artifact.txt"])
 
 
 def test_build_review_context_excludes_binary_files_by_default() -> None:

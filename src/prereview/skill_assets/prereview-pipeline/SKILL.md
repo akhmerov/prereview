@@ -43,10 +43,9 @@ Choose one source:
 - Default current working tree diff vs `HEAD` when no source flags are given
 
 By default, untracked files are excluded.
-Use `--include-untracked` when relevant untracked files should be included in review scope.
-Use `--exclude-path` to remove generated or irrelevant paths (for example `showcase/**`).
-Binary diffs are excluded by default; only use `--include-binary` when the binary change itself is review-critical.
-If context preparation fails due diff-size safeguards, narrow scope with `--exclude-path` before retrying.
+Use `--include PATH` to scope review to matching paths (tracked or untracked, repeatable).
+Without `--include`, prereview uses tracked working-tree changes and excludes binary diffs.
+If context preparation fails due diff-size safeguards, narrow scope with `--include` before retrying.
 
 ## Annotation authoring guidance
 

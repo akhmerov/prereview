@@ -28,17 +28,15 @@ from prereview.skill_install import (
     local_target_root,
 )
 from prereview.renderer import render_html
-from prereview.util import ensure_parent, load_json, write_json, write_text
-from prereview.validate import (
-    evaluate_annotations,
-    grouped_issues,
-    materialize_annotations_for_render,
-)
+from prereview.util import ensure_parent, write_json, write_text
+from prereview.validate import evaluate_annotations, materialize_annotations_for_render
 
 _MAX_UNCOMMENTED_DIFF_LINES_PER_HUNK = 80
 _MAX_UNCOMMENTED_DIFF_CHARS_PER_HUNK = 8_000
 _MAX_UNCOMMENTED_DIFF_TOTAL_CHARS = 48_000
 _LINE_PREFIX_BY_TYPE = {"add": "+", "del": "-", "context": " "}
+_DEFAULT_REPORT_TITLE = "Prereview Report"
+_DEFAULT_MAX_EXPANDED_LINES = 120
 
 
 def _ensure_artifacts_workspace(path: Path) -> None:
@@ -268,18 +266,10 @@ def _run_cmd(args: argparse.Namespace) -> int:
     _ensure_artifacts_workspace(artifacts_dir)
     _ensure_git_info_exclude(artifacts_dir)
 
-    exclude_paths = list(args.exclude_path)
-    if not artifacts_dir.is_absolute():
-        artifacts_glob = artifacts_dir.as_posix().strip().lstrip("./")
-        if artifacts_glob and artifacts_glob != ".":
-            exclude_paths.append(f"{artifacts_glob.rstrip('/')}/**")
-
     source_spec = build_source_spec(
         patch_file=args.patch_file,
         git_range=args.git_range,
-        include_untracked=args.include_untracked,
-        exclude_paths=exclude_paths,
-        exclude_binary=not args.include_binary,
+        include_paths=list(args.include),
     )
     raw_patch = collect_patch_text_from_source(source_spec)
     context = build_review_context(raw_patch, source_spec)
@@ -289,9 +279,7 @@ def _run_cmd(args: argparse.Namespace) -> int:
     notes_path = artifacts_dir / "review-notes.jsonl"
     rejected_path = artifacts_dir / "rejected-notes.jsonl"
     annotations_path = artifacts_dir / "annotations.json"
-    html_path = (
-        args.output if args.output is not None else artifacts_dir / "review.html"
-    )
+    html_path = artifacts_dir / "review.html"
 
     write_json(context_path, context)
     if not notes_path.exists():
@@ -355,10 +343,10 @@ def _run_cmd(args: argparse.Namespace) -> int:
         },
         render_annotations,
         report,
-        title=args.title,
-        max_expanded_lines=args.max_expanded_lines,
-        collapse_large_hunks=args.collapse_large_hunks,
-        allow_split_hunks=args.allow_split_hunks,
+        title=_DEFAULT_REPORT_TITLE,
+        max_expanded_lines=_DEFAULT_MAX_EXPANDED_LINES,
+        collapse_large_hunks=True,
+        allow_split_hunks=True,
         embedded_data={
             "context": context,
             "annotation_notes": notes_payload,
@@ -450,143 +438,6 @@ def _install_skill_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
-def _prepare_context_cmd(args: argparse.Namespace) -> int:
-    if args.stdin_patch:
-        raise SystemExit(
-            "prepare-context does not support --stdin-patch because validate/build must recompute diff deterministically."
-        )
-
-    source_spec = build_source_spec(
-        patch_file=args.patch_file,
-        git_range=args.git_range,
-        include_untracked=args.include_untracked,
-        exclude_paths=args.exclude_path,
-        exclude_binary=not args.include_binary,
-    )
-    raw_patch = collect_patch_text_from_source(source_spec)
-    context = build_review_context(raw_patch, source_spec)
-    write_json(args.out, context)
-
-    stats = context["stats"]
-    print(
-        f"Prepared context {context['context_id']} with {stats['files_changed']} files, "
-        f"+{stats['additions']} / -{stats['deletions']} -> {args.out}"
-    )
-    return 0
-
-
-def _build_validation_failure_message(
-    args: argparse.Namespace, report: dict[str, object]
-) -> str:
-    grouped = grouped_issues(report)
-    errors = len(grouped["error"]) if "error" in grouped else 0
-    warnings = len(grouped["warning"]) if "warning" in grouped else 0
-    issue_list = report["issues"]
-
-    lines = [f"Build validation failed: {errors} errors, {warnings} warnings."]
-    for issue in issue_list[:20]:
-        lines.append(
-            f"- [{issue['level']}] {issue['code']}: "
-            f"{issue['message']} ({issue['location']})"
-        )
-    if len(issue_list) > 20:
-        lines.append(f"- ... {len(issue_list) - 20} more issues")
-
-    if args.notes is not None:
-        input_flag = "--notes"
-        input_path = args.notes
-        input_label = "Notes file"
-        action_subject = "notes"
-    else:
-        input_flag = "--annotations"
-        input_path = args.annotations
-        input_label = "Annotations file"
-        action_subject = "annotations"
-
-    lines.insert(
-        1,
-        f"Agent action: update {action_subject} to resolve the validation issues below, then rerun build.",
-    )
-    lines.append(f"Context file: {args.context}")
-    lines.append(f"{input_label}: {input_path}")
-    lines.append("Rerun after fixes:")
-    lines.append(
-        f"prereview build --context {args.context} {input_flag} {input_path} --output {args.output}"
-    )
-    return "\n".join(lines)
-
-
-def _build_cmd(args: argparse.Namespace) -> int:
-    context = load_json(args.context)
-    notes = None
-    compile_issues: list[dict[str, str]] = []
-
-    if args.notes is not None:
-        notes = load_json(args.notes)
-        annotations, compile_issues = compile_annotations_from_notes(context, notes)
-    else:
-        annotations = load_json(args.annotations)
-
-    if args.strict:
-        for issue in compile_issues:
-            if issue["level"] == "warning":
-                issue["level"] = "error"
-
-    report, runtime = evaluate_annotations(context, annotations, strict=args.strict)
-    if compile_issues:
-        combined_issues = [*compile_issues, *report["issues"]]
-        report = {
-            "valid": not any(issue["level"] == "error" for issue in combined_issues),
-            "issues": combined_issues,
-            "stats": report["stats"],
-        }
-
-    if not report["valid"]:
-        raise SystemExit(_build_validation_failure_message(args, report))
-
-    if runtime is None:
-        raise SystemExit(
-            "Cannot build preview because runtime diff recomputation failed."
-        )
-
-    render_annotations = materialize_annotations_for_render(runtime, annotations)
-    html = render_html(
-        {
-            "stats": runtime["stats"],
-            "files": _runtime_files_payload(runtime["files"]),
-        },
-        render_annotations,
-        report,
-        title=args.title,
-        max_expanded_lines=args.max_expanded_lines,
-        collapse_large_hunks=args.collapse_large_hunks,
-        allow_split_hunks=args.allow_split_hunks,
-        embedded_data={
-            "context": context,
-            "annotation_notes": notes,
-            "annotations": annotations,
-            "validation_report": report,
-        },
-    )
-    write_text(args.output, html)
-
-    consumed_paths: list[Path] = []
-    if not args.keep_inputs:
-        build_input = args.notes if args.notes is not None else args.annotations
-        for candidate in {args.context, build_input}:
-            try:
-                candidate.unlink()
-            except FileNotFoundError:
-                continue
-            consumed_paths.append(candidate)
-
-    print(f"Built static preview at {args.output}")
-    if consumed_paths:
-        consumed_display = ", ".join(str(path) for path in consumed_paths)
-        print(f"Consumed intermediate artifacts: {consumed_display}")
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="prereview",
@@ -600,20 +451,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--git-range", help="Generate diff from git (single ref or range)."
     )
     parser.add_argument(
-        "--include-untracked",
-        action="store_true",
-        help="Include untracked files as additions (default: disabled).",
-    )
-    parser.add_argument(
-        "--include-binary",
-        action="store_true",
-        help="Include binary file changes. By default, binary diffs are excluded.",
-    )
-    parser.add_argument(
-        "--exclude-path",
+        "--include",
         action="append",
         default=[],
-        help="Exclude paths matching this glob (repeatable).",
+        help=(
+            "Include only paths matching this glob (repeatable). "
+            "When set, matching tracked and untracked files are included."
+        ),
     )
     parser.add_argument(
         "--artifacts-dir",
@@ -621,32 +465,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("prereview"),
         help="Directory for generated review artifacts.",
     )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Output HTML file path (default: ARTIFACTS_DIR/review.html).",
-    )
-    parser.add_argument("--title", default="Prereview Report", help="Report title.")
-    parser.add_argument(
-        "--max-expanded-lines",
-        type=int,
-        default=120,
-        help="Hunks longer than this are collapsed by default.",
-    )
-    parser.add_argument(
-        "--no-collapse-large-hunks",
-        dest="collapse_large_hunks",
-        action="store_false",
-        help="Disable default collapsing of large hunks.",
-    )
-    parser.add_argument(
-        "--no-split-hunks",
-        dest="allow_split_hunks",
-        action="store_false",
-        help="Ignore split hunk annotations and only map by hunk id.",
-    )
-
     subparsers = parser.add_subparsers(dest="command")
 
     clean_parser = subparsers.add_parser(
@@ -686,112 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     install_skill_parser.set_defaults(func=_install_skill_cmd)
 
-    prepare_parser = subparsers.add_parser(
-        "prepare-context", help="Prepare reviewer-focused context input."
-    )
-    source_group = prepare_parser.add_mutually_exclusive_group()
-    source_group.add_argument(
-        "--patch-file", type=Path, help="Read unified diff from file."
-    )
-    source_group.add_argument(
-        "--stdin-patch",
-        action="store_true",
-        help="(unsupported) kept for explicit error message.",
-    )
-    source_group.add_argument(
-        "--git-range", help="Generate diff from a git range (e.g. HEAD~1..HEAD)."
-    )
-    prepare_parser.add_argument(
-        "--include-untracked",
-        action="store_true",
-        help="Include untracked files as additions.",
-    )
-    prepare_parser.add_argument(
-        "--include-binary",
-        action="store_true",
-        help="Include binary file changes. By default, binary diffs are excluded from review context.",
-    )
-    prepare_parser.add_argument(
-        "--exclude-path",
-        action="append",
-        default=[],
-        help="Exclude paths matching this glob from context generation (repeatable, e.g. 'showcase/**').",
-    )
-    prepare_parser.add_argument(
-        "--out", type=Path, required=True, help="Output review-context JSON path."
-    )
-    prepare_parser.set_defaults(func=_prepare_context_cmd)
-
-    build_parser = subparsers.add_parser(
-        "build",
-        help="Build static HTML from context + notes (or legacy annotations) with validation.",
-    )
-    build_parser.add_argument(
-        "--context", type=Path, required=True, help="Path to review-context JSON."
-    )
-    input_group = build_parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument(
-        "--notes",
-        type=Path,
-        help="Path to annotation notes JSON (recommended; compiled to annotations during build).",
-    )
-    input_group.add_argument(
-        "--annotations",
-        type=Path,
-        help="Path to canonical annotations JSON (legacy input mode).",
-    )
-    build_parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("review.html"),
-        help="Output HTML file path at repository root by default.",
-    )
-    build_parser.add_argument(
-        "--title", default="Prereview Report", help="Report title."
-    )
-    build_parser.add_argument(
-        "--keep-inputs",
-        action="store_true",
-        help="Do not delete context and input JSON files after build.",
-    )
-    build_parser.add_argument(
-        "--max-expanded-lines",
-        type=int,
-        default=120,
-        help="Hunks longer than this are collapsed by default.",
-    )
-    build_parser.add_argument(
-        "--no-collapse-large-hunks",
-        dest="collapse_large_hunks",
-        action="store_false",
-        help="Disable default collapsing of large hunks.",
-    )
-    build_parser.add_argument(
-        "--no-split-hunks",
-        dest="allow_split_hunks",
-        action="store_false",
-        help="Ignore split hunk annotations and only map by hunk id.",
-    )
-    build_parser.add_argument(
-        "--strict",
-        action="store_true",
-        dest="strict",
-        help="Treat unresolved anchors/files as errors during build validation (default).",
-    )
-    build_parser.add_argument(
-        "--no-strict",
-        action="store_false",
-        dest="strict",
-        help="Downgrade unknown anchors/files to warnings during build validation.",
-    )
-    build_parser.set_defaults(
-        collapse_large_hunks=True, allow_split_hunks=True, strict=True
-    )
-    build_parser.set_defaults(func=_build_cmd)
-
-    parser.set_defaults(
-        collapse_large_hunks=True, allow_split_hunks=True, func=_run_cmd
-    )
+    parser.set_defaults(func=_run_cmd)
     return parser
 
 

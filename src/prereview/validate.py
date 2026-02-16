@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 from prereview.annotations import iter_file_anchors, validate_annotation_schema
@@ -281,10 +280,3 @@ def materialize_annotations_for_render(
         "overview": annotations["overview"],
         "files": render_files,
     }
-
-
-def grouped_issues(report: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
-    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for issue in report["issues"]:
-        grouped[issue["level"]].append(issue)
-    return dict(grouped)

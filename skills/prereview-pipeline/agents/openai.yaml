@@ -1,7 +1,7 @@
 interface:
   display_name: "Prereview Pipeline"
   short_description: "Generate staged diff-to-HTML review previews"
-  default_prompt: "Use $prereview-pipeline to run prepare-context, author annotation notes from context, and build a static HTML prereview."
+  default_prompt: "Use $prereview-pipeline to run prereview, author notes in prereview/review-notes.jsonl from prereview/review-input.txt, then rerun prereview to rebuild static HTML."
 
 policy:
   allow_implicit_invocation: true
