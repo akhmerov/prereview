@@ -355,6 +355,7 @@ header {
 }
 .line-row td.num {
   cursor: pointer;
+  position: relative;
 }
 .line-row td.num:hover {
   background: #e9f2fe;
@@ -363,6 +364,16 @@ header {
 .line-row.has-reviewer-comment td.num {
   color: #14395c;
   font-weight: 700;
+}
+.line-row.has-reviewer-comment td.num:first-child::before {
+  content: "💬";
+  position: absolute;
+  left: 0.06rem;
+  top: 50%;
+  transform: translateY(-49%);
+  font-size: 0.72rem;
+  pointer-events: none;
+  z-index: 1;
 }
 .reviewer-editor-row td {
   background: #f5f9ff;
@@ -654,6 +665,19 @@ header {
     return lines.join("\n").trimEnd();
   };
 
+  const buildSingleCommentPrompt = (comment) => {
+    const lines = [
+      "Address the following comment.",
+      "",
+      `1. ${lineReference(comment)}`,
+    ];
+    if (comment.excerpt) {
+      lines.push(`   excerpt: ${comment.excerpt}`);
+    }
+    lines.push(`   comment: ${comment.text}`);
+    return lines.join("\n");
+  };
+
   const copyText = async (text) => {
     if (!text) {
       return false;
@@ -688,6 +712,14 @@ header {
       const key = lineRow.getAttribute("data-location-key");
       lineRow.classList.toggle("has-reviewer-comment", !!(key && commentedKeys.has(key)));
     });
+  };
+
+  const findCommentForLine = (lineRow) => {
+    const key = lineRow.getAttribute("data-location-key") || "";
+    if (!key) {
+      return null;
+    }
+    return reviewerComments.find((comment) => comment.location_key === key) || null;
   };
 
   const renderReviewerComments = () => {
@@ -741,7 +773,7 @@ header {
     updateLineMarkers();
   };
 
-  const openEditorForLine = (lineRow) => {
+  const openEditorForLine = (lineRow, existingComment = null) => {
     removeActiveEditor();
 
     const editorRow = document.createElement("tr");
@@ -758,11 +790,14 @@ header {
 
     const meta = document.createElement("p");
     meta.className = "reviewer-editor-meta";
-    meta.textContent = `${filePath} | new:${newLine} old:${oldLine}`;
+    meta.textContent = `${filePath} | new:${newLine} old:${oldLine}${existingComment ? " | editing existing comment" : ""}`;
     wrapper.appendChild(meta);
 
     const textarea = document.createElement("textarea");
     textarea.placeholder = "Write reviewer comment...";
+    if (existingComment && typeof existingComment.text === "string") {
+      textarea.value = existingComment.text;
+    }
     wrapper.appendChild(textarea);
 
     const actions = document.createElement("div");
@@ -770,33 +805,69 @@ header {
 
     const saveButton = document.createElement("button");
     saveButton.type = "button";
-    saveButton.textContent = "Save";
+    saveButton.textContent = existingComment ? "Update" : "Save";
+    const buildDraftComment = (textValue) => {
+      const lineContent = (lineRow.getAttribute("data-line-content") || "").trim();
+      const clippedExcerpt = lineContent.length > 177 ? `${lineContent.slice(0, 177)}...` : lineContent;
+      const oldLineValue = lineRow.getAttribute("data-old-line");
+      const newLineValue = lineRow.getAttribute("data-new-line");
+      const locationKey = lineRow.getAttribute("data-location-key") || "";
+      return {
+        id: existingComment && typeof existingComment.id === "string" && existingComment.id
+          ? existingComment.id
+          : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        file_path: lineRow.getAttribute("data-file-path") || "",
+        old_line: oldLineValue ? Number(oldLineValue) : null,
+        new_line: newLineValue ? Number(newLineValue) : null,
+        excerpt: clippedExcerpt,
+        location_key: locationKey,
+        text: textValue,
+      };
+    };
+
     saveButton.addEventListener("click", () => {
       const text = textarea.value.trim();
       if (!text) {
         return;
       }
-      const lineContent = (lineRow.getAttribute("data-line-content") || "").trim();
-      const clippedExcerpt = lineContent.length > 177 ? `${lineContent.slice(0, 177)}...` : lineContent;
-      const oldLineValue = lineRow.getAttribute("data-old-line");
-      const newLineValue = lineRow.getAttribute("data-new-line");
-      reviewerComments.push(
-        {
-          id: `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-          file_path: lineRow.getAttribute("data-file-path") || "",
-          old_line: oldLineValue ? Number(oldLineValue) : null,
-          new_line: newLineValue ? Number(newLineValue) : null,
-          excerpt: clippedExcerpt,
-          location_key: lineRow.getAttribute("data-location-key") || "",
-          text,
-        }
-      );
+      const updatedComment = buildDraftComment(text);
+
+      if (existingComment) {
+        reviewerComments = reviewerComments.map((candidate) =>
+          candidate.id === existingComment.id ? updatedComment : candidate
+        );
+      } else {
+        reviewerComments = reviewerComments.filter((candidate) => candidate.location_key !== updatedComment.location_key);
+        reviewerComments.push(updatedComment);
+      }
       persistComments();
       renderReviewerComments();
       removeActiveEditor();
-      setStatus(`Saved ${reviewerComments.length} reviewer comment(s).`);
+      if (existingComment) {
+        setStatus(`Updated reviewer comment (${reviewerComments.length} total).`);
+      } else {
+        setStatus(`Saved ${reviewerComments.length} reviewer comment(s).`);
+      }
     });
     actions.appendChild(saveButton);
+
+    const copySingleButton = document.createElement("button");
+    copySingleButton.type = "button";
+    copySingleButton.textContent = "Copy Prompt";
+    copySingleButton.addEventListener("click", async () => {
+      const text = textarea.value.trim() || (existingComment && typeof existingComment.text === "string" ? existingComment.text.trim() : "");
+      if (!text) {
+        setStatus("Write reviewer comment text to copy.");
+        return;
+      }
+      const copied = await copyText(buildSingleCommentPrompt(buildDraftComment(text)));
+      if (copied) {
+        setStatus("Copied prompt for this comment.");
+      } else {
+        setStatus("Could not copy prompt to clipboard.");
+      }
+    });
+    actions.appendChild(copySingleButton);
 
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
@@ -859,7 +930,8 @@ header {
     if (!lineRow.classList.contains("line-row")) {
       return;
     }
-    openEditorForLine(lineRow);
+    const existingComment = findCommentForLine(lineRow);
+    openEditorForLine(lineRow, existingComment);
   });
 
   const linkById = new Map();

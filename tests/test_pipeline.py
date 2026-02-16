@@ -467,12 +467,22 @@ def test_render_includes_reviewer_commenting_ui() -> None:
     assert "id='copy-agent-prompt'" in html
     assert "id='reviewer-comment-list'" in html
     assert "id='clear-reviewer-comments'" in html
+    assert 'copySingleButton.textContent = "Copy Prompt";' in html
+    assert "Write reviewer comment text to copy." in html
+    assert "reviewer-comment-buttons" not in html
     assert "data-comment-trigger='line'" in html
     assert "data-location-key='src/demo.py::" in html
+    assert 'content: "💬";' in html
+    assert ".line-row.has-reviewer-comment td {" not in html
     assert "buildAgentPrompt" in html
+    assert "buildSingleCommentPrompt" in html
     assert "Address all of the following comments one by one." in html
+    assert "Address the following comment." in html
     assert "target_context_id:" not in html
     assert " | hunk_id=" not in html
+    assert "editing existing comment" in html
+    assert "findCommentForLine(lineRow)" in html
+    assert 'saveButton.textContent = existingComment ? "Update" : "Save";' in html
     assert "Click a line number in the diff to add a reviewer comment." in html
 
 
