@@ -760,6 +760,52 @@ def test_render_review_input_uses_markers_and_anchor_ids() -> None:
     assert "CONTEXT END" in rendered
 
 
+def test_render_review_input_marks_uncommented_hunks_and_embeds_diff() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    runtime = recompute_runtime_from_context(context)
+    anchor_id = context["files"][0]["anchors"][0]["anchor_id"]
+    metadata = runtime["anchor_index"]["src/demo.py"][anchor_id]
+
+    rendered = render_review_input(
+        context,
+        notes_file="review-notes.jsonl",
+        anchor_states={
+            anchor_id: {
+                "uncommented": True,
+                "changed_loc": metadata.get("changed_loc"),
+                "diff_lines": [
+                    "@@ -1,2 +1,3 @@",
+                    " def greet():",
+                    '-    return "hi"',
+                    '+    message = "hi"',
+                    "+    return message",
+                ],
+            }
+        },
+    )
+
+    assert f"ANCHOR id={anchor_id} uncommented=true changed_loc=3" in rendered
+    assert "DIFF_START" in rendered
+    assert "@@ -1,2 +1,3 @@" in rendered
+    assert '+    message = "hi"' in rendered
+    assert "DIFF_END" in rendered
+    assert "\nSNIPPET " not in rendered
+
+
+def test_render_review_input_marks_commented_hunks_without_diff() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    anchor_id = context["files"][0]["anchors"][0]["anchor_id"]
+    rendered = render_review_input(
+        context,
+        notes_file="review-notes.jsonl",
+        anchor_states={anchor_id: {"uncommented": False, "changed_loc": 3}},
+    )
+
+    assert f"ANCHOR id={anchor_id} uncommented=false changed_loc=3" in rendered
+    assert "DIFF_START" not in rendered
+    assert "\nSNIPPET " in rendered
+
+
 def test_parse_review_notes_jsonl_rejects_invalid_records(tmp_path: Path) -> None:
     context = _context_from_patch(SAMPLE_PATCH)
     anchor_id = context["files"][0]["anchors"][0]["anchor_id"]
@@ -865,6 +911,14 @@ def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
     notes_text = (artifacts_dir / "review-notes.jsonl").read_text(encoding="utf-8")
     assert default_review_notes_template().strip() in notes_text
 
+    input_text = (artifacts_dir / "review-input.txt").read_text(encoding="utf-8")
+    assert "ANCHOR id=" in input_text
+    assert "uncommented=true changed_loc=3" in input_text
+    assert "DIFF_START" in input_text
+    assert "DIFF_END" in input_text
+    assert "\nSNIPPET " not in input_text
+    assert "UNCOMMENTED HUNKS START" not in input_text
+
     html = (artifacts_dir / "review.html").read_text(encoding="utf-8")
     assert "src/demo.py" in html
     assert "prereview-embedded-data" in html
@@ -937,6 +991,31 @@ def test_cli_no_subcommand_defaults_to_run(tmp_path: Path) -> None:
         == 0
     )
     assert (artifacts_dir / "review.html").exists()
+
+
+def test_cli_run_prints_uncommented_loc_and_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    patch_path = tmp_path / "change.patch"
+    artifacts_dir = tmp_path / "prereview"
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--patch-file",
+                str(patch_path),
+                "--artifacts-dir",
+                str(artifacts_dir),
+            ]
+        )
+        == 0
+    )
+
+    stdout = capsys.readouterr().out
+    assert "Uncommented hunks: 1" in stdout
+    assert "Uncommented changed LOC: 3" in stdout
+    assert "Uncommented files: src/demo.py" in stdout
 
 
 def test_cli_run_subcommand_is_removed() -> None:

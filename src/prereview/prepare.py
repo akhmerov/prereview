@@ -386,14 +386,22 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
                 continue
             anchor_id = hash_text(f"{path}:{stable_hunk_id}")
             anchor_line: int | None = None
+            additions = 0
+            deletions = 0
             for line in hunk.get("lines", []):
+                if isinstance(line, dict):
+                    line_type = line.get("type")
+                    if line_type == "add":
+                        additions += 1
+                    elif line_type == "del":
+                        deletions += 1
                 if (
                     isinstance(line, dict)
                     and line.get("type") == "add"
                     and isinstance(line.get("new_line"), int)
+                    and anchor_line is None
                 ):
                     anchor_line = line["new_line"]
-                    break
 
             file_anchor_map[anchor_id] = {
                 "anchor_id": anchor_id,
@@ -406,6 +414,7 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(hunk.get("new_start"), int)
                 else 1,
                 "anchor_line": anchor_line,
+                "changed_loc": additions + deletions,
             }
         anchor_index[path] = file_anchor_map
 

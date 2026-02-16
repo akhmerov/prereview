@@ -91,7 +91,12 @@ def notes_payload_to_jsonl_lines(notes_payload: dict[str, Any]) -> list[str]:
     return lines
 
 
-def render_review_input(context: dict[str, Any], *, notes_file: str) -> str:
+def render_review_input(
+    context: dict[str, Any],
+    *,
+    notes_file: str,
+    anchor_states: dict[str, dict[str, Any]] | None = None,
+) -> str:
     stats = context.get("stats", {})
     files = context.get("files", [])
 
@@ -128,26 +133,61 @@ def render_review_input(context: dict[str, Any], *, notes_file: str) -> str:
             anchor_id = anchor.get("anchor_id")
             if not isinstance(anchor_id, str) or not anchor_id:
                 continue
-            lines.append(f"ANCHOR id={anchor_id}")
+
+            state = (
+                anchor_states.get(anchor_id, {})
+                if isinstance(anchor_states, dict)
+                else {}
+            )
+            uncommented = state.get("uncommented")
+            changed_loc = state.get("changed_loc")
+            if isinstance(uncommented, bool):
+                changed_loc_text = (
+                    str(changed_loc) if isinstance(changed_loc, int) else "?"
+                )
+                lines.append(
+                    f"ANCHOR id={anchor_id} "
+                    f"uncommented={'true' if uncommented else 'false'} "
+                    f"changed_loc={changed_loc_text}"
+                )
+            else:
+                lines.append(f"ANCHOR id={anchor_id}")
 
             title = anchor.get("title")
             if isinstance(title, str) and title.strip():
                 lines.append(f"TITLE {title.strip()}")
 
-            snippets = anchor.get("focus_snippets")
-            if isinstance(snippets, list):
-                for snippet in snippets:
-                    if isinstance(snippet, str) and snippet.strip():
-                        lines.append(f"SNIPPET {snippet.strip()}")
+            if uncommented is not True:
+                snippets = anchor.get("focus_snippets")
+                if isinstance(snippets, list):
+                    for snippet in snippets:
+                        if isinstance(snippet, str) and snippet.strip():
+                            lines.append(f"SNIPPET {snippet.strip()}")
 
             risk_hint = anchor.get("risk_hint")
             if isinstance(risk_hint, str) and risk_hint.strip():
                 lines.append(f"RISK_HINT {risk_hint.strip()}")
 
+            if uncommented is True:
+                diff_lines = state.get("diff_lines")
+                if isinstance(diff_lines, list) and diff_lines:
+                    lines.append("DIFF_START")
+                    for diff_line in diff_lines:
+                        if isinstance(diff_line, str):
+                            lines.append(diff_line)
+                    if state.get("diff_truncated") is True:
+                        lines.append("... (diff truncated)")
+                    lines.append("DIFF_END")
+                elif state.get("diff_omitted") is True:
+                    lines.append("DIFF_START")
+                    lines.append("... (diff omitted: budget exceeded)")
+                    lines.append("DIFF_END")
+
             lines.append("END_ANCHOR")
         lines.append("END_FILE")
 
     lines.append("CONTEXT END")
+
     return "\n".join(lines) + "\n"
 
 

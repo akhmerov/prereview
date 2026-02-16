@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from prereview.annotations import compile_annotations_from_notes
 from prereview.prepare import (
@@ -26,6 +27,11 @@ from prereview.validate import (
     grouped_issues,
     materialize_annotations_for_render,
 )
+
+_MAX_UNCOMMENTED_DIFF_LINES_PER_HUNK = 80
+_MAX_UNCOMMENTED_DIFF_CHARS_PER_HUNK = 8_000
+_MAX_UNCOMMENTED_DIFF_TOTAL_CHARS = 48_000
+_LINE_PREFIX_BY_TYPE = {"add": "+", "del": "-", "context": " "}
 
 
 def _ensure_artifacts_workspace(path: Path) -> None:
@@ -128,6 +134,168 @@ def _normalize_issue(issue: object) -> dict[str, str] | None:
     }
 
 
+def _format_hunk_header(hunk: dict[str, Any]) -> str:
+    old_start = hunk.get("old_start")
+    old_count = hunk.get("old_count")
+    new_start = hunk.get("new_start")
+    new_count = hunk.get("new_count")
+    old_start_text = str(old_start) if isinstance(old_start, int) else "?"
+    old_count_text = str(old_count) if isinstance(old_count, int) else "?"
+    new_start_text = str(new_start) if isinstance(new_start, int) else "?"
+    new_count_text = str(new_count) if isinstance(new_count, int) else "?"
+    trailer = str(hunk.get("header", "")).strip()
+    base = (
+        f"@@ -{old_start_text},{old_count_text} +{new_start_text},{new_count_text} @@"
+    )
+    return f"{base} {trailer}".rstrip()
+
+
+def _render_uncommented_diff_lines(
+    hunk: dict[str, Any],
+    *,
+    max_lines: int,
+    max_chars: int,
+) -> tuple[list[str], int, bool]:
+    rendered: list[str] = []
+    used_chars = 0
+
+    def append_line(value: str) -> bool:
+        nonlocal used_chars
+        projected = used_chars + len(value) + 1
+        if len(rendered) >= max_lines or projected > max_chars:
+            return False
+        rendered.append(value)
+        used_chars = projected
+        return True
+
+    if not append_line(_format_hunk_header(hunk)):
+        return [], 0, True
+
+    body_lines = hunk.get("lines", [])
+    if not isinstance(body_lines, list):
+        body_lines = []
+
+    truncated = False
+    for line in body_lines:
+        if not isinstance(line, dict):
+            continue
+        line_type = line.get("type")
+        if line_type not in _LINE_PREFIX_BY_TYPE:
+            continue
+        content = str(line.get("content", ""))
+        if not append_line(_LINE_PREFIX_BY_TYPE[line_type] + content):
+            truncated = True
+            break
+
+    return rendered, used_chars, truncated
+
+
+def _runtime_hunks_by_stable_id(
+    runtime: dict[str, Any],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    by_file: dict[str, dict[str, dict[str, Any]]] = {}
+    for file_entry in runtime.get("files", []):
+        if not isinstance(file_entry, dict):
+            continue
+        path = file_entry.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+
+        per_file: dict[str, dict[str, Any]] = {}
+        for hunk in file_entry.get("hunks", []):
+            if not isinstance(hunk, dict):
+                continue
+            stable_hunk_id = hunk.get("stable_hunk_id")
+            if not isinstance(stable_hunk_id, str) or not stable_hunk_id:
+                continue
+            per_file[stable_hunk_id] = hunk
+        by_file[path] = per_file
+    return by_file
+
+
+def _collect_anchor_states(
+    context: dict[str, Any],
+    runtime: dict[str, Any],
+    notes_payload: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    commented_anchor_ids = {
+        anchor_id
+        for anchor in notes_payload.get("anchors", [])
+        if isinstance(anchor, dict)
+        and isinstance((anchor_id := anchor.get("anchor_id")), str)
+        and anchor_id
+    }
+
+    anchor_states: dict[str, dict[str, Any]] = {}
+    anchor_index = runtime.get("anchor_index", {})
+    hunk_index = _runtime_hunks_by_stable_id(runtime)
+    remaining_chars_budget = _MAX_UNCOMMENTED_DIFF_TOTAL_CHARS
+
+    for file_entry in context.get("files", []):
+        if not isinstance(file_entry, dict):
+            continue
+        path = file_entry.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+
+        file_anchor_index = (
+            anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
+        )
+        for anchor in file_entry.get("anchors", []):
+            if not isinstance(anchor, dict):
+                continue
+            anchor_id = anchor.get("anchor_id")
+            if not isinstance(anchor_id, str) or not anchor_id:
+                continue
+            runtime_meta = (
+                file_anchor_index.get(anchor_id)
+                if isinstance(file_anchor_index, dict)
+                else {}
+            )
+            if not isinstance(runtime_meta, dict):
+                runtime_meta = {}
+
+            state: dict[str, Any] = {
+                "path": path,
+                "changed_loc": runtime_meta.get("changed_loc"),
+                "uncommented": anchor_id not in commented_anchor_ids,
+            }
+
+            if state["uncommented"]:
+                stable_hunk_id = runtime_meta.get("stable_hunk_id")
+                hunk = (
+                    hunk_index.get(path, {}).get(stable_hunk_id)
+                    if isinstance(stable_hunk_id, str)
+                    else None
+                )
+                if isinstance(hunk, dict):
+                    max_chars = min(
+                        _MAX_UNCOMMENTED_DIFF_CHARS_PER_HUNK,
+                        max(remaining_chars_budget, 0),
+                    )
+                    if max_chars > 0:
+                        diff_lines, used_chars, truncated = (
+                            _render_uncommented_diff_lines(
+                                hunk,
+                                max_lines=_MAX_UNCOMMENTED_DIFF_LINES_PER_HUNK,
+                                max_chars=max_chars,
+                            )
+                        )
+                        if diff_lines:
+                            state["diff_lines"] = diff_lines
+                            if truncated:
+                                state["diff_truncated"] = True
+                            remaining_chars_budget -= used_chars
+                        else:
+                            state["diff_omitted"] = True
+                    else:
+                        state["diff_omitted"] = True
+
+            anchor_states[anchor_id] = state
+
+    return anchor_states
+
+
 def _run_cmd(args: argparse.Namespace) -> int:
     artifacts_dir = args.artifacts_dir
     _ensure_artifacts_workspace(artifacts_dir)
@@ -160,10 +328,6 @@ def _run_cmd(args: argparse.Namespace) -> int:
     )
 
     write_json(context_path, context)
-    write_text(
-        input_path,
-        render_review_input(context, notes_file=notes_path.name),
-    )
     if not notes_path.exists():
         write_text(notes_path, default_review_notes_template())
 
@@ -182,6 +346,16 @@ def _run_cmd(args: argparse.Namespace) -> int:
         raise SystemExit(
             "Cannot build preview because runtime diff recomputation failed."
         )
+
+    anchor_states = _collect_anchor_states(context, runtime, notes_payload)
+    write_text(
+        input_path,
+        render_review_input(
+            context,
+            notes_file=notes_path.name,
+            anchor_states=anchor_states,
+        ),
+    )
 
     extra_issues: list[dict[str, str]] = []
     for raw_issue in [*notes_issues, *compile_issues]:
@@ -230,12 +404,31 @@ def _run_cmd(args: argparse.Namespace) -> int:
     write_text(html_path, html)
 
     stats = context.get("stats", {})
+    uncommented_states = [
+        state for state in anchor_states.values() if state.get("uncommented") is True
+    ]
+    uncommented_changed_loc = sum(
+        int(state.get("changed_loc", 0))
+        for state in uncommented_states
+        if isinstance(state.get("changed_loc"), int)
+    )
+    uncommented_paths = sorted(
+        {
+            str(state.get("path"))
+            for state in uncommented_states
+            if isinstance(state.get("path"), str) and state.get("path")
+        }
+    )
+    uncommented_files = ", ".join(uncommented_paths) if uncommented_paths else "(none)"
     print(
         "Prepared context "
         f"{context.get('context_id', '')} with {stats.get('files_changed', 0)} files, "
         f"+{stats.get('additions', 0)} / -{stats.get('deletions', 0)}"
     )
     print(f"Wrote agent input: {input_path}")
+    print(f"Uncommented hunks: {len(uncommented_states)}")
+    print(f"Uncommented changed LOC: {uncommented_changed_loc}")
+    print(f"Uncommented files: {uncommented_files}")
     print(f"Parsed notes file: {notes_path}")
     print(f"Rejected notes: {len(rejected_records)} -> {rejected_path}")
     print(f"Built static preview at {html_path}")
