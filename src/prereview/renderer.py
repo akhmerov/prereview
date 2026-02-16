@@ -8,14 +8,14 @@ from typing import Any
 from jinja2 import Environment
 
 
-def _line_number(value: Any) -> str:
+def _line_number(value: int | None) -> str:
+    # Diff rows are side-specific: added lines have no old number and deleted
+    # lines have no new number.
     return "" if value is None else str(value)
 
 
-def _hunk_range(start: Any, count: Any, prefix: str) -> str:
-    if not isinstance(start, int):
-        return "?"
-    span = count if isinstance(count, int) else 1
+def _hunk_range(start: int, count: int, prefix: str) -> str:
+    span = count
     if span < 1:
         span = 1
     end = start + span - 1
@@ -24,8 +24,8 @@ def _hunk_range(start: Any, count: Any, prefix: str) -> str:
     return f"{prefix}{start}-{end}"
 
 
-def _normalize_file_summary(path: str, summary: Any) -> str | None:
-    if not isinstance(summary, str):
+def _normalize_file_summary(path: str, summary: str | None) -> str | None:
+    if summary is None:
         return None
     text = summary.strip()
     if not text:
@@ -51,39 +51,21 @@ def _json_for_html_script(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True).replace("</", "<\\/")
 
 
-def _comment_range(comment: dict[str, Any]) -> tuple[int | None, int | None]:
-    start = comment.get("line_start")
-    end = comment.get("line_end", start)
-    if isinstance(start, int) and isinstance(end, int):
-        if end < start:
-            return end, start
-        return start, end
-    return None, None
-
-
 def _comments_by_line(
     file_annotation: dict[str, Any],
 ) -> dict[int, list[dict[str, Any]]]:
     by_line: dict[int, list[dict[str, Any]]] = {}
 
-    def add_comment(comment: dict[str, Any], source: str) -> None:
-        start, end = _comment_range(comment)
-        if start is None or end is None:
-            return
-        comment_with_source = dict(comment)
-        comment_with_source["_source"] = source
-        by_line.setdefault(start, []).append(comment_with_source)
+    def add_comment(comment: dict[str, Any]) -> None:
+        start = comment["line_start"]
+        by_line.setdefault(start, []).append(comment)
 
-    for comment in file_annotation.get("comments", []):
-        if isinstance(comment, dict):
-            add_comment(comment, "file")
+    for comment in file_annotation["comments"]:
+        add_comment(comment)
 
-    for hunk in file_annotation.get("hunks", []):
-        if not isinstance(hunk, dict):
-            continue
-        for comment in hunk.get("comments", []):
-            if isinstance(comment, dict):
-                add_comment(comment, "hunk")
+    for hunk in file_annotation["hunks"]:
+        for comment in hunk["comments"]:
+            add_comment(comment)
 
     return by_line
 
@@ -94,33 +76,23 @@ def _hunk_annotations(
     allow_split_hunks: bool,
 ) -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
-    hunk_id = hunk.get("hunk_id")
-    hunk_start = hunk.get("new_start")
-    hunk_end = None
-    if isinstance(hunk_start, int):
-        hunk_end = hunk_start + max(int(hunk.get("new_count", 1)) - 1, 0)
+    hunk_id = hunk["hunk_id"]
+    hunk_start = hunk["new_start"]
+    hunk_end = hunk_start + max(hunk["new_count"] - 1, 0)
 
-    for hunk_annotation in file_annotation.get("hunks", []):
-        if not isinstance(hunk_annotation, dict):
-            continue
-        if hunk_id and hunk_annotation.get("hunk_id") == hunk_id:
+    for hunk_annotation in file_annotation["hunks"]:
+        if hunk_id and hunk_annotation["hunk_id"] == hunk_id:
             selected.append(hunk_annotation)
             continue
         if not allow_split_hunks:
             continue
 
-        new_start = hunk_annotation.get("new_start")
-        new_end = hunk_annotation.get("new_end")
-        if (
-            isinstance(new_start, int)
-            and isinstance(new_end, int)
-            and isinstance(hunk_start, int)
-            and isinstance(hunk_end, int)
-        ):
-            if new_end < new_start:
-                new_start, new_end = new_end, new_start
-            if new_start <= hunk_end and new_end >= hunk_start:
-                selected.append(hunk_annotation)
+        new_start = hunk_annotation["new_start"]
+        new_end = hunk_annotation["new_end"]
+        if new_end < new_start:
+            new_start, new_end = new_end, new_start
+        if new_start <= hunk_end and new_end >= hunk_start:
+            selected.append(hunk_annotation)
 
     return selected
 
@@ -147,56 +119,36 @@ def render_html(
     allow_split_hunks: bool,
     embedded_data: dict[str, Any] | None = None,
 ) -> str:
-    prepared_stats = prepared.get("stats", {})
-    files = prepared.get("files", [])
-    overview = annotations.get("overview", [])
+    prepared_stats = prepared["stats"]
+    files = prepared["files"]
+    overview = annotations["overview"]
 
     file_annotations: dict[str, dict[str, Any]] = {}
-    for file_annotation in annotations.get("files", []):
-        if isinstance(file_annotation, dict) and isinstance(
-            file_annotation.get("path"), str
-        ):
-            file_annotations[file_annotation["path"]] = file_annotation
+    for file_annotation in annotations["files"]:
+        file_annotations[file_annotation["path"]] = file_annotation
 
-    issues = validation_report.get("issues", [])
-    error_count = sum(
-        1
-        for issue in issues
-        if isinstance(issue, dict) and issue.get("level") == "error"
-    )
-    warning_count = sum(
-        1
-        for issue in issues
-        if isinstance(issue, dict) and issue.get("level") == "warning"
-    )
+    issues = validation_report["issues"]
+    error_count = sum(1 for issue in issues if issue["level"] == "error")
+    warning_count = sum(1 for issue in issues if issue["level"] == "warning")
 
-    overview_lines = []
-    if isinstance(overview, list):
-        overview_lines = [
-            line for line in overview if isinstance(line, str) and line.strip()
-        ][:8]
+    overview_lines = [line for line in overview if line.strip()][:8]
 
     issues_render: list[dict[str, str]] = []
     for issue in issues[:25]:
-        if not isinstance(issue, dict):
-            continue
         issues_render.append(
             {
-                "level": str(issue.get("level", "warning")),
-                "code": str(issue.get("code", "issue")),
-                "message": str(issue.get("message", "")),
-                "location": str(issue.get("location", "")),
+                "level": issue["level"],
+                "code": issue["code"],
+                "message": issue["message"],
+                "location": issue["location"],
             }
         )
     issues_extra_count = max(len(issues) - 25, 0)
 
     files_render: list[dict[str, Any]] = []
     for file_index, file_entry in enumerate(files, start=1):
-        if not isinstance(file_entry, dict):
-            continue
-
-        path = str(file_entry.get("path", "unknown"))
-        file_annotation = file_annotations.get(path, {})
+        path = file_entry["path"]
+        file_annotation = file_annotations[path]
 
         path_parts = [part for part in path.split("/") if part]
         file_name = path_parts[-1] if path_parts else path
@@ -207,13 +159,11 @@ def render_html(
             "anchor_id": file_anchor_id,
             "toc_label": path,
             "path": path,
-            "status": str(file_entry.get("status", "modified")),
+            "status": file_entry["status"],
             "file_dir": file_dir,
             "file_name": file_name,
-            "summary_text": _normalize_file_summary(
-                path, file_annotation.get("summary")
-            ),
-            "is_binary": bool(file_entry.get("is_binary")),
+            "summary_text": _normalize_file_summary(path, file_annotation["summary"]),
+            "is_binary": file_entry["is_binary"],
             "hunks": [],
         }
 
@@ -222,44 +172,32 @@ def render_html(
             continue
 
         comments_by_line = _comments_by_line(file_annotation)
-        for hunk_index, hunk in enumerate(file_entry.get("hunks", []), start=1):
-            if not isinstance(hunk, dict):
-                continue
-
+        for hunk_index, hunk in enumerate(file_entry["hunks"], start=1):
             hunk_annotations = _hunk_annotations(
                 file_annotation, hunk, allow_split_hunks
             )
-            lines = hunk.get("lines", [])
-            lines_list = lines if isinstance(lines, list) else []
+            lines_list = hunk["lines"]
 
-            is_open = not bool(
+            is_open = not (
                 collapse_large_hunks and len(lines_list) > max_expanded_lines
             )
 
-            added_lines = sum(
-                1
-                for line in lines_list
-                if isinstance(line, dict) and line.get("type") == "add"
-            )
-            removed_lines = sum(
-                1
-                for line in lines_list
-                if isinstance(line, dict) and line.get("type") == "del"
-            )
+            added_lines = sum(1 for line in lines_list if line["type"] == "add")
+            removed_lines = sum(1 for line in lines_list if line["type"] == "del")
 
-            new_range = _hunk_range(hunk.get("new_start"), hunk.get("new_count"), "+")
-            old_range = _hunk_range(hunk.get("old_start"), hunk.get("old_count"), "-")
+            new_range = _hunk_range(hunk["new_start"], hunk["new_count"], "+")
+            old_range = _hunk_range(hunk["old_start"], hunk["old_count"], "-")
             summary_label = f"Change {new_range} (from {old_range})"
             for hunk_annotation in hunk_annotations:
-                title_text = hunk_annotation.get("title")
+                title_text = hunk_annotation["title"]
                 if isinstance(title_text, str) and title_text.strip():
                     summary_label = title_text.strip()
                     break
 
             notes: list[dict[str, str]] = []
             for hunk_annotation in hunk_annotations:
-                note_fields = hunk_annotation.get("note_fields")
-                if isinstance(note_fields, dict):
+                note_fields = hunk_annotation["note_fields"]
+                if note_fields:
                     structured_note: dict[str, str] = {}
                     for field in (
                         "what_changed",
@@ -267,32 +205,28 @@ def render_html(
                         "reviewer_focus",
                         "risk",
                     ):
-                        value = note_fields.get(field)
-                        if isinstance(value, str) and value.strip():
-                            structured_note[field] = value.strip()
+                        value = (
+                            note_fields[field].strip() if field in note_fields else ""
+                        )
+                        if value:
+                            structured_note[field] = value
                     if structured_note:
                         notes.append(structured_note)
                         continue
 
-                explanation = hunk_annotation.get("explanation")
+                explanation = hunk_annotation["explanation"]
                 if isinstance(explanation, str) and explanation.strip():
                     notes.append({"explanation": explanation.strip()})
 
-            new_start = hunk.get("new_start")
-            new_count = hunk.get("new_count")
-            new_end = None
-            if isinstance(new_start, int):
-                span = new_count if isinstance(new_count, int) else 1
-                if span < 1:
-                    span = 1
-                new_end = new_start + span - 1
+            new_start = hunk["new_start"]
+            span = hunk["new_count"]
+            if span < 1:
+                span = 1
+            new_end = new_start + span - 1
 
             rows: list[dict[str, Any]] = []
             for line in lines_list:
-                if not isinstance(line, dict):
-                    continue
-
-                line_type = str(line.get("type", "context"))
+                line_type = line["type"]
                 class_name = ""
                 symbol = " "
                 if line_type == "add":
@@ -307,41 +241,32 @@ def render_html(
                         "kind": "line",
                         "class_name": class_name,
                         "symbol": symbol,
-                        "old_no": _line_number(line.get("old_line")),
-                        "new_no": _line_number(line.get("new_line")),
-                        "old_line": line.get("old_line")
-                        if isinstance(line.get("old_line"), int)
-                        else None,
-                        "new_line": line.get("new_line")
-                        if isinstance(line.get("new_line"), int)
-                        else None,
-                        "raw_content": str(line.get("content", "")),
-                        "content": html.escape(
-                            str(line.get("content", "")), quote=True
-                        ),
+                        "old_no": _line_number(line["old_line"]),
+                        "new_no": _line_number(line["new_line"]),
+                        "old_line": line["old_line"],
+                        "new_line": line["new_line"],
+                        "raw_content": line["content"],
+                        "content": html.escape(line["content"], quote=True),
                     }
                 )
 
-                new_line = line.get("new_line")
-                if isinstance(new_line, int) and new_line in comments_by_line:
+                new_line = line["new_line"]
+                if new_line in comments_by_line:
                     for comment in comments_by_line[new_line]:
-                        severity = (
-                            str(comment.get("severity", "info")).strip().lower()
-                            or "info"
-                        )
+                        severity = comment["severity"].strip().lower() or "info"
                         rows.append(
                             {
                                 "kind": "comment",
                                 "severity": severity,
-                                "text": str(comment.get("text", "")),
+                                "text": comment["text"],
                             }
                         )
 
             file_view["hunks"].append(
                 {
                     "anchor_id": f"{file_anchor_id}-hunk-{hunk_index}",
-                    "hunk_id": str(hunk.get("hunk_id", "")),
-                    "new_start": new_start if isinstance(new_start, int) else None,
+                    "hunk_id": hunk["hunk_id"],
+                    "new_start": new_start,
                     "new_end": new_end,
                     "is_open": is_open,
                     "summary_label": summary_label,
@@ -360,9 +285,9 @@ def render_html(
 
     return _TEMPLATE.render(
         title=title,
-        files_changed=prepared_stats.get("files_changed", 0),
-        additions=prepared_stats.get("additions", 0),
-        deletions=prepared_stats.get("deletions", 0),
+        files_changed=prepared_stats["files_changed"],
+        additions=prepared_stats["additions"],
+        deletions=prepared_stats["deletions"],
         error_count=error_count,
         warning_count=warning_count,
         overview_lines=overview_lines,

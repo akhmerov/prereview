@@ -61,7 +61,7 @@ def evaluate_annotations(
     runtime: dict[str, Any] | None = None
     try:
         runtime = recompute_runtime_from_context(context)
-    except Exception as exc:  # noqa: BLE001
+    except RuntimeError as exc:
         issues.append(
             _issue(
                 "error",
@@ -73,7 +73,7 @@ def evaluate_annotations(
 
     if runtime is not None:
         expected_fingerprint = context.get("diff_fingerprint")
-        actual_fingerprint = runtime.get("diff_fingerprint")
+        actual_fingerprint = runtime["diff_fingerprint"]
         if (
             isinstance(expected_fingerprint, str)
             and expected_fingerprint != actual_fingerprint
@@ -97,11 +97,9 @@ def evaluate_annotations(
         and isinstance(annotations.get("files"), list)
     ):
         runtime_file_paths = {
-            str(file_entry.get("path")): file_entry
-            for file_entry in runtime.get("files", [])
-            if isinstance(file_entry, dict)
+            file_entry["path"]: file_entry for file_entry in runtime["files"]
         }
-        anchor_index = runtime.get("anchor_index", {})
+        anchor_index = runtime["anchor_index"]
 
         for file_idx, file_annotation in enumerate(annotations["files"]):
             if not isinstance(file_annotation, dict):
@@ -124,9 +122,7 @@ def evaluate_annotations(
                 )
                 continue
 
-            file_anchor_index = (
-                anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
-            )
+            file_anchor_index = anchor_index[path]
             for anchor_idx, anchor in enumerate(iter_file_anchors(file_annotation)):
                 anchor_id = anchor.get("anchor_id")
                 if not isinstance(anchor_id, str):
@@ -162,63 +158,61 @@ def evaluate_annotations(
     return report, runtime
 
 
-def validate_annotations(
-    context: Any,
-    annotations: Any,
-    *,
-    strict: bool,
-) -> dict[str, Any]:
-    report, _ = evaluate_annotations(context, annotations, strict=strict)
-    return report
-
-
 def materialize_annotations_for_render(
     runtime: dict[str, Any],
     annotations: dict[str, Any],
 ) -> dict[str, Any]:
-    runtime_files = runtime.get("files", [])
-    anchor_index = runtime.get("anchor_index", {})
+    runtime_files = runtime["files"]
+    anchor_index = runtime["anchor_index"]
 
     annotations_by_file: dict[str, dict[str, Any]] = {}
-    for file_annotation in annotations.get("files", []):
-        if isinstance(file_annotation, dict) and isinstance(
-            file_annotation.get("path"), str
-        ):
-            annotations_by_file[file_annotation["path"]] = file_annotation
+    for file_annotation in annotations["files"]:
+        path = file_annotation["path"]
+        annotations_by_file[path] = {
+            "path": path,
+            "breadcrumbs": (
+                file_annotation["breadcrumbs"]
+                if "breadcrumbs" in file_annotation
+                else path.split("/")
+            ),
+            "summary": file_annotation["summary"]
+            if "summary" in file_annotation
+            else None,
+            "anchors": file_annotation["anchors"],
+        }
 
     render_files: list[dict[str, Any]] = []
     for runtime_file in runtime_files:
-        if not isinstance(runtime_file, dict):
-            continue
-        path = runtime_file.get("path")
-        if not isinstance(path, str):
-            continue
-
-        file_annotation = annotations_by_file.get(path, {})
+        path = runtime_file["path"]
+        file_annotation = (
+            annotations_by_file[path]
+            if path in annotations_by_file
+            else {"breadcrumbs": path.split("/"), "summary": None, "anchors": []}
+        )
         render_file = {
             "path": path,
-            "breadcrumbs": file_annotation.get("breadcrumbs", path.split("/")),
-            "summary": file_annotation.get("summary"),
+            "breadcrumbs": file_annotation["breadcrumbs"],
+            "summary": file_annotation["summary"],
             "comments": [],
             "hunks": [],
         }
 
-        per_file_anchor_index = (
-            anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
-        )
+        per_file_anchor_index = anchor_index[path]
         for anchor in iter_file_anchors(file_annotation):
-            anchor_id = anchor.get("anchor_id")
+            anchor_id = anchor["anchor_id"]
             if not isinstance(anchor_id, str):
                 continue
-            resolved = per_file_anchor_index.get(anchor_id)
-            if not isinstance(resolved, dict):
+            if anchor_id not in per_file_anchor_index:
                 continue
+            resolved = per_file_anchor_index[anchor_id]
 
-            what_changed = str(anchor.get("what_changed", "")).strip()
-            why_changed = str(anchor.get("why_changed", "")).strip()
-            reviewer_focus = str(anchor.get("reviewer_focus", "")).strip()
-            risk = str(anchor.get("risk", "")).strip()
-            severity = str(anchor.get("severity", "note"))
+            what_changed = anchor["what_changed"].strip()
+            why_changed = anchor["why_changed"].strip()
+            reviewer_focus = (
+                anchor["reviewer_focus"].strip() if "reviewer_focus" in anchor else ""
+            )
+            risk = anchor["risk"].strip() if "risk" in anchor else ""
+            severity = anchor["severity"] if "severity" in anchor else "note"
 
             note_fields = {
                 "what_changed": _ensure_terminal_punctuation(what_changed),
@@ -232,10 +226,11 @@ def materialize_annotations_for_render(
                 note_fields["risk"] = _ensure_terminal_punctuation(risk)
 
             hunk_annotation = {
-                "hunk_id": resolved.get("hunk_id"),
-                "new_start": resolved.get("new_start"),
-                "new_end": resolved.get("new_end"),
-                "title": anchor.get("title") or "Review focus",
+                "hunk_id": resolved["hunk_id"],
+                "new_start": resolved["new_start"],
+                "new_end": resolved["new_end"],
+                "title": (anchor["title"] if "title" in anchor else "")
+                or "Review focus",
                 "note_fields": note_fields,
                 # Keep legacy flattened explanation for compatibility with older renderers/tests.
                 "explanation": " ".join(
@@ -258,7 +253,7 @@ def materialize_annotations_for_render(
             }
 
             # Keep line-level notes rare: only materialize for warning/risk anchors.
-            anchor_line = resolved.get("anchor_line")
+            anchor_line = resolved["anchor_line"]
             if isinstance(anchor_line, int) and severity in {"warning", "risk"}:
                 text_bits = []
                 if reviewer_focus:
@@ -283,13 +278,13 @@ def materialize_annotations_for_render(
 
     return {
         "version": "render-2",
-        "overview": annotations.get("overview", []),
+        "overview": annotations["overview"],
         "files": render_files,
     }
 
 
 def grouped_issues(report: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for issue in report.get("issues", []):
-        grouped[str(issue.get("level", "warning"))].append(issue)
+    for issue in report["issues"]:
+        grouped[issue["level"]].append(issue)
     return dict(grouped)

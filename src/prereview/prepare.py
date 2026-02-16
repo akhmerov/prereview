@@ -115,7 +115,6 @@ def build_source_spec(
     *,
     patch_file: Path | None,
     git_range: str | None,
-    use_working_tree: bool,
     include_untracked: bool,
     exclude_paths: list[str],
     exclude_binary: bool = True,
@@ -131,37 +130,26 @@ def build_source_spec(
         "mode": mode,
         "patch_file": str(patch_file.resolve()) if patch_file is not None else None,
         "git_range": git_range,
-        "use_working_tree": use_working_tree or mode == "working-tree",
         "include_untracked": include_untracked,
         "exclude_binary": exclude_binary,
         "exclude_paths": exclude_paths,
-        "cwd": str(Path.cwd()),
     }
     return source_spec
 
 
 def collect_patch_text_from_source(source_spec: dict[str, Any]) -> str:
-    exclude_paths = source_spec.get("exclude_paths", [])
-    if not isinstance(exclude_paths, list):
-        exclude_paths = []
-    exclude_patterns = [str(pattern) for pattern in exclude_paths]
+    exclude_patterns = source_spec["exclude_paths"]
     exclude_pathspecs = [
         f":(exclude,glob){pattern.lstrip('./')}"
         for pattern in exclude_patterns
         if pattern.strip()
     ]
 
-    mode = source_spec.get("mode")
+    mode = source_spec["mode"]
     if mode == "patch-file":
-        patch_file = source_spec.get("patch_file")
-        if not isinstance(patch_file, str) or not patch_file:
-            raise RuntimeError("source_spec.patch_file is required for patch-file mode")
-        raw_patch = _read_patch_file(Path(patch_file))
+        raw_patch = _read_patch_file(Path(source_spec["patch_file"]))
     elif mode == "git-range":
-        git_range = source_spec.get("git_range")
-        if not isinstance(git_range, str) or not git_range:
-            raise RuntimeError("source_spec.git_range is required for git-range mode")
-        args = ["diff", git_range]
+        args = ["diff", source_spec["git_range"]]
         if exclude_pathspecs:
             args.extend(["--", ".", *exclude_pathspecs])
         raw_patch = _run_git_command(args, max_output_bytes=_MAX_TRACKED_PATCH_BYTES)
@@ -173,7 +161,7 @@ def collect_patch_text_from_source(source_spec: dict[str, Any]) -> str:
     else:
         raise RuntimeError(f"Unsupported source mode: {mode}")
 
-    if bool(source_spec.get("include_untracked")):
+    if source_spec["include_untracked"]:
         untracked_patch = _build_untracked_patch(exclude_patterns)
         if untracked_patch:
             if raw_patch and not raw_patch.endswith("\n"):
@@ -314,14 +302,12 @@ def _build_context_files(files: list[FilePatch]) -> list[dict[str, Any]]:
 
 
 def build_review_context(raw_patch: str, source_spec: dict[str, Any]) -> dict[str, Any]:
-    exclude_paths = source_spec.get("exclude_paths", [])
-    if not isinstance(exclude_paths, list):
-        exclude_paths = []
-    exclude_binary = bool(source_spec.get("exclude_binary", True))
+    exclude_paths = source_spec["exclude_paths"]
+    exclude_binary = source_spec["exclude_binary"]
 
     files = _parse_files(
         raw_patch,
-        [str(pattern) for pattern in exclude_paths],
+        exclude_paths,
         exclude_binary=exclude_binary,
     )
     diff_fingerprint = hash_text(raw_patch)
@@ -360,59 +346,45 @@ def recompute_runtime_from_context(context: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("Context is missing source_spec.")
 
     raw_patch = collect_patch_text_from_source(source_spec)
-    exclude_paths = source_spec.get("exclude_paths", [])
-    if not isinstance(exclude_paths, list):
-        exclude_paths = []
-    exclude_binary = bool(source_spec.get("exclude_binary", True))
+    exclude_paths = source_spec["exclude_paths"]
+    exclude_binary = source_spec["exclude_binary"]
 
     files = _parse_files(
         raw_patch,
-        [str(pattern) for pattern in exclude_paths],
+        exclude_paths,
         exclude_binary=exclude_binary,
     )
     runtime_files = [file_patch.to_dict() for file_patch in files]
 
     anchor_index: dict[str, dict[str, dict[str, Any]]] = {}
     for file_dict in runtime_files:
-        path = file_dict.get("path")
-        if not isinstance(path, str):
-            continue
+        path = file_dict["path"]
         file_anchor_map: dict[str, dict[str, Any]] = {}
-        for hunk in file_dict.get("hunks", []):
-            if not isinstance(hunk, dict):
-                continue
-            stable_hunk_id = hunk.get("stable_hunk_id")
-            if not isinstance(stable_hunk_id, str) or not stable_hunk_id:
-                continue
+        for hunk in file_dict["hunks"]:
+            stable_hunk_id = hunk["stable_hunk_id"]
             anchor_id = hash_text(f"{path}:{stable_hunk_id}")
             anchor_line: int | None = None
             additions = 0
             deletions = 0
-            for line in hunk.get("lines", []):
-                if isinstance(line, dict):
-                    line_type = line.get("type")
-                    if line_type == "add":
-                        additions += 1
-                    elif line_type == "del":
-                        deletions += 1
+            for line in hunk["lines"]:
+                line_type = line["type"]
+                if line_type == "add":
+                    additions += 1
+                elif line_type == "del":
+                    deletions += 1
                 if (
-                    isinstance(line, dict)
-                    and line.get("type") == "add"
-                    and isinstance(line.get("new_line"), int)
+                    line_type == "add"
+                    and isinstance(line["new_line"], int)
                     and anchor_line is None
                 ):
                     anchor_line = line["new_line"]
 
             file_anchor_map[anchor_id] = {
                 "anchor_id": anchor_id,
-                "hunk_id": hunk.get("hunk_id"),
+                "hunk_id": hunk["hunk_id"],
                 "stable_hunk_id": stable_hunk_id,
-                "new_start": hunk.get("new_start"),
-                "new_end": (
-                    hunk.get("new_start", 1) + max(int(hunk.get("new_count", 1)) - 1, 0)
-                )
-                if isinstance(hunk.get("new_start"), int)
-                else 1,
+                "new_start": hunk["new_start"],
+                "new_end": hunk["new_start"] + max(hunk["new_count"] - 1, 0),
                 "anchor_line": anchor_line,
                 "changed_loc": additions + deletions,
             }

@@ -168,17 +168,17 @@ def render_review_input(
             if isinstance(risk_hint, str) and risk_hint.strip():
                 lines.append(f"RISK_HINT {risk_hint.strip()}")
 
-            if uncommented is True:
+            if uncommented:
                 diff_lines = state.get("diff_lines")
                 if isinstance(diff_lines, list) and diff_lines:
                     lines.append("DIFF_START")
                     for diff_line in diff_lines:
                         if isinstance(diff_line, str):
                             lines.append(diff_line)
-                    if state.get("diff_truncated") is True:
+                    if state.get("diff_truncated"):
                         lines.append("... (diff truncated)")
                     lines.append("DIFF_END")
-                elif state.get("diff_omitted") is True:
+                elif state.get("diff_omitted"):
                     lines.append("DIFF_START")
                     lines.append("... (diff omitted: budget exceeded)")
                     lines.append("DIFF_END")

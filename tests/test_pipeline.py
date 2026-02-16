@@ -58,7 +58,6 @@ def _context_from_patch(
     source_spec = build_source_spec(
         patch_file=patch_path,
         git_range=None,
-        use_working_tree=False,
         include_untracked=False,
         exclude_paths=exclude_paths or [],
     )
@@ -1159,7 +1158,6 @@ new file mode 100644
     source_spec = build_source_spec(
         patch_file=tmp_patch,
         git_range=None,
-        use_working_tree=False,
         include_untracked=False,
         exclude_paths=["showcase/**"],
     )

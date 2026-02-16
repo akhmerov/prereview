@@ -129,27 +129,24 @@ def _remove_git_info_exclude(path: Path) -> None:
 def _normalize_issue(issue: object) -> dict[str, str] | None:
     if not isinstance(issue, dict):
         return None
-    level = str(issue.get("level", "warning")).strip() or "warning"
+    level = issue["level"].strip() if "level" in issue else "warning"
+    level = level or "warning"
     if level not in {"warning", "error"}:
         level = "warning"
     return {
         "level": level,
-        "code": str(issue.get("code", "issue")),
-        "message": str(issue.get("message", "")),
-        "location": str(issue.get("location", "")),
+        "code": issue["code"] if "code" in issue else "issue",
+        "message": issue["message"] if "message" in issue else "",
+        "location": issue["location"] if "location" in issue else "",
     }
 
 
 def _format_hunk_header(hunk: dict[str, Any]) -> str:
-    old_start = hunk.get("old_start")
-    old_count = hunk.get("old_count")
-    new_start = hunk.get("new_start")
-    new_count = hunk.get("new_count")
-    old_start_text = str(old_start) if isinstance(old_start, int) else "?"
-    old_count_text = str(old_count) if isinstance(old_count, int) else "?"
-    new_start_text = str(new_start) if isinstance(new_start, int) else "?"
-    new_count_text = str(new_count) if isinstance(new_count, int) else "?"
-    trailer = str(hunk.get("header", "")).strip()
+    old_start_text = hunk["old_start"]
+    old_count_text = hunk["old_count"]
+    new_start_text = hunk["new_start"]
+    new_count_text = hunk["new_count"]
+    trailer = hunk["header"].strip()
     base = (
         f"@@ -{old_start_text},{old_count_text} +{new_start_text},{new_count_text} @@"
     )
@@ -177,18 +174,14 @@ def _render_uncommented_diff_lines(
     if not append_line(_format_hunk_header(hunk)):
         return [], 0, True
 
-    body_lines = hunk.get("lines", [])
-    if not isinstance(body_lines, list):
-        body_lines = []
+    body_lines = hunk["lines"]
 
     truncated = False
     for line in body_lines:
-        if not isinstance(line, dict):
-            continue
-        line_type = line.get("type")
+        line_type = line["type"]
         if line_type not in _LINE_PREFIX_BY_TYPE:
             continue
-        content = str(line.get("content", ""))
+        content = line["content"]
         if not append_line(_LINE_PREFIX_BY_TYPE[line_type] + content):
             truncated = True
             break
@@ -199,24 +192,12 @@ def _render_uncommented_diff_lines(
 def _runtime_hunks_by_stable_id(
     runtime: dict[str, Any],
 ) -> dict[str, dict[str, dict[str, Any]]]:
-    by_file: dict[str, dict[str, dict[str, Any]]] = {}
-    for file_entry in runtime.get("files", []):
-        if not isinstance(file_entry, dict):
-            continue
-        path = file_entry.get("path")
-        if not isinstance(path, str) or not path:
-            continue
-
-        per_file: dict[str, dict[str, Any]] = {}
-        for hunk in file_entry.get("hunks", []):
-            if not isinstance(hunk, dict):
-                continue
-            stable_hunk_id = hunk.get("stable_hunk_id")
-            if not isinstance(stable_hunk_id, str) or not stable_hunk_id:
-                continue
-            per_file[stable_hunk_id] = hunk
-        by_file[path] = per_file
-    return by_file
+    return {
+        file_entry["path"]: {
+            hunk["stable_hunk_id"]: hunk for hunk in file_entry["hunks"]
+        }
+        for file_entry in runtime["files"]
+    }
 
 
 def _collect_anchor_states(
@@ -225,56 +206,33 @@ def _collect_anchor_states(
     notes_payload: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     commented_anchor_ids = {
-        anchor_id
-        for anchor in notes_payload.get("anchors", [])
-        if isinstance(anchor, dict)
-        and isinstance((anchor_id := anchor.get("anchor_id")), str)
-        and anchor_id
+        anchor["anchor_id"]
+        for anchor in notes_payload["anchors"]
+        if anchor["anchor_id"]
     }
 
     anchor_states: dict[str, dict[str, Any]] = {}
-    anchor_index = runtime.get("anchor_index", {})
+    anchor_index = runtime["anchor_index"]
     hunk_index = _runtime_hunks_by_stable_id(runtime)
     remaining_chars_budget = _MAX_UNCOMMENTED_DIFF_TOTAL_CHARS
 
-    for file_entry in context.get("files", []):
-        if not isinstance(file_entry, dict):
-            continue
-        path = file_entry.get("path")
-        if not isinstance(path, str) or not path:
-            continue
-
-        file_anchor_index = (
-            anchor_index.get(path, {}) if isinstance(anchor_index, dict) else {}
-        )
-        for anchor in file_entry.get("anchors", []):
-            if not isinstance(anchor, dict):
-                continue
-            anchor_id = anchor.get("anchor_id")
-            if not isinstance(anchor_id, str) or not anchor_id:
-                continue
-            runtime_meta = (
-                file_anchor_index.get(anchor_id)
-                if isinstance(file_anchor_index, dict)
-                else {}
-            )
-            if not isinstance(runtime_meta, dict):
-                runtime_meta = {}
+    for file_entry in context["files"]:
+        path = file_entry["path"]
+        file_anchor_index = anchor_index[path]
+        for anchor in file_entry["anchors"]:
+            anchor_id = anchor["anchor_id"]
+            runtime_meta = file_anchor_index[anchor_id]
 
             state: dict[str, Any] = {
                 "path": path,
-                "changed_loc": runtime_meta.get("changed_loc"),
+                "changed_loc": runtime_meta["changed_loc"],
                 "uncommented": anchor_id not in commented_anchor_ids,
             }
 
             if state["uncommented"]:
-                stable_hunk_id = runtime_meta.get("stable_hunk_id")
-                hunk = (
-                    hunk_index.get(path, {}).get(stable_hunk_id)
-                    if isinstance(stable_hunk_id, str)
-                    else None
-                )
-                if isinstance(hunk, dict):
+                stable_hunk_id = runtime_meta["stable_hunk_id"]
+                hunk = hunk_index[path][stable_hunk_id]
+                if hunk:
                     max_chars = min(
                         _MAX_UNCOMMENTED_DIFF_CHARS_PER_HUNK,
                         max(remaining_chars_budget, 0),
@@ -316,7 +274,6 @@ def _run_cmd(args: argparse.Namespace) -> int:
     source_spec = build_source_spec(
         patch_file=args.patch_file,
         git_range=args.git_range,
-        use_working_tree=args.use_working_tree,
         include_untracked=args.include_untracked,
         exclude_paths=exclude_paths,
         exclude_binary=not args.include_binary,
@@ -373,7 +330,7 @@ def _run_cmd(args: argparse.Namespace) -> int:
             normalized["level"] = "warning"
         extra_issues.append(normalized)
 
-    runtime_issues = report.get("issues", [])
+    runtime_issues = report["issues"]
     normalized_runtime_issues = [
         normalized
         for raw_issue in runtime_issues
@@ -384,14 +341,14 @@ def _run_cmd(args: argparse.Namespace) -> int:
     report = {
         "valid": not any(issue["level"] == "error" for issue in combined_issues),
         "issues": combined_issues,
-        "stats": report.get("stats", {}),
+        "stats": report["stats"],
     }
 
     render_annotations = materialize_annotations_for_render(runtime, annotations)
     html = render_html(
         {
-            "stats": runtime.get("stats", {}),
-            "files": runtime.get("files", []),
+            "stats": runtime["stats"],
+            "files": runtime["files"],
         },
         render_annotations,
         report,
@@ -409,27 +366,19 @@ def _run_cmd(args: argparse.Namespace) -> int:
     )
     write_text(html_path, html)
 
-    stats = context.get("stats", {})
+    stats = context["stats"]
     uncommented_states = [
-        state for state in anchor_states.values() if state.get("uncommented") is True
+        state for state in anchor_states.values() if state["uncommented"]
     ]
-    uncommented_changed_loc = sum(
-        int(state.get("changed_loc", 0))
-        for state in uncommented_states
-        if isinstance(state.get("changed_loc"), int)
-    )
+    uncommented_changed_loc = sum(state["changed_loc"] for state in uncommented_states)
     uncommented_paths = sorted(
-        {
-            str(state.get("path"))
-            for state in uncommented_states
-            if isinstance(state.get("path"), str) and state.get("path")
-        }
+        {state["path"] for state in uncommented_states if state["path"]}
     )
     uncommented_files = ", ".join(uncommented_paths) if uncommented_paths else "(none)"
     print(
         "Prepared context "
-        f"{context.get('context_id', '')} with {stats.get('files_changed', 0)} files, "
-        f"+{stats.get('additions', 0)} / -{stats.get('deletions', 0)}"
+        f"{context['context_id']} with {stats['files_changed']} files, "
+        f"+{stats['additions']} / -{stats['deletions']}"
     )
     print(f"Wrote agent input: {input_path}")
     print(f"Uncommented hunks: {len(uncommented_states)}")
@@ -477,7 +426,7 @@ def _install_skill_cmd(args: argparse.Namespace) -> int:
         target_root = _prompt_target_dir(args.agent)
 
     install_path = target_root.expanduser().resolve() / SKILL_NAME
-    force = bool(args.force)
+    force = args.force
     if install_path.exists() and not force:
         if not sys.stdin.isatty():
             raise SystemExit(
@@ -507,7 +456,6 @@ def _prepare_context_cmd(args: argparse.Namespace) -> int:
     source_spec = build_source_spec(
         patch_file=args.patch_file,
         git_range=args.git_range,
-        use_working_tree=args.use_working_tree,
         include_untracked=args.include_untracked,
         exclude_paths=args.exclude_path,
         exclude_binary=not args.include_binary,
@@ -528,18 +476,15 @@ def _build_validation_failure_message(
     args: argparse.Namespace, report: dict[str, object]
 ) -> str:
     grouped = grouped_issues(report)
-    errors = len(grouped.get("error", []))
-    warnings = len(grouped.get("warning", []))
-    issues = report.get("issues", [])
-    issue_list = issues if isinstance(issues, list) else []
+    errors = len(grouped["error"]) if "error" in grouped else 0
+    warnings = len(grouped["warning"]) if "warning" in grouped else 0
+    issue_list = report["issues"]
 
     lines = [f"Build validation failed: {errors} errors, {warnings} warnings."]
     for issue in issue_list[:20]:
-        if not isinstance(issue, dict):
-            continue
         lines.append(
-            f"- [{issue.get('level', 'warning')}] {issue.get('code', 'issue')}: "
-            f"{issue.get('message', '')} ({issue.get('location', '')})"
+            f"- [{issue['level']}] {issue['code']}: "
+            f"{issue['message']} ({issue['location']})"
         )
     if len(issue_list) > 20:
         lines.append(f"- ... {len(issue_list) - 20} more issues")
@@ -581,20 +526,16 @@ def _build_cmd(args: argparse.Namespace) -> int:
 
     if args.strict:
         for issue in compile_issues:
-            if issue.get("level") == "warning":
+            if issue["level"] == "warning":
                 issue["level"] = "error"
 
     report, runtime = evaluate_annotations(context, annotations, strict=args.strict)
     if compile_issues:
-        combined_issues = [*compile_issues, *report.get("issues", [])]
+        combined_issues = [*compile_issues, *report["issues"]]
         report = {
-            "valid": not any(
-                issue.get("level") == "error"
-                for issue in combined_issues
-                if isinstance(issue, dict)
-            ),
+            "valid": not any(issue["level"] == "error" for issue in combined_issues),
             "issues": combined_issues,
-            "stats": report.get("stats", {}),
+            "stats": report["stats"],
         }
 
     if not report["valid"]:
@@ -608,8 +549,8 @@ def _build_cmd(args: argparse.Namespace) -> int:
     render_annotations = materialize_annotations_for_render(runtime, annotations)
     html = render_html(
         {
-            "stats": runtime.get("stats", {}),
-            "files": runtime.get("files", []),
+            "stats": runtime["stats"],
+            "files": runtime["files"],
         },
         render_annotations,
         report,
@@ -654,11 +595,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_source_group.add_argument(
         "--git-range", help="Generate diff from git (single ref or range)."
-    )
-    parser.add_argument(
-        "--use-working-tree",
-        action="store_true",
-        help="Force working tree diff against HEAD (default when no source is given).",
     )
     parser.add_argument(
         "--include-untracked",
@@ -763,11 +699,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--git-range", help="Generate diff from a git range (e.g. HEAD~1..HEAD)."
     )
     prepare_parser.add_argument(
-        "--use-working-tree",
-        action="store_true",
-        help="Force working tree diff against HEAD. This is the default when no source option is provided.",
-    )
-    prepare_parser.add_argument(
         "--include-untracked",
         action="store_true",
         help="Include untracked files as additions.",
@@ -864,7 +795,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
-    return int(args.func(args))
+    return args.func(args)
 
 
 if __name__ == "__main__":
