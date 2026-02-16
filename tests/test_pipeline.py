@@ -6,13 +6,20 @@ from pathlib import Path
 import pytest
 
 from prereview.annotations import compile_annotations_from_notes
-from prereview.cli import main
+from prereview.cli import build_parser, main
 from prereview.diff_parser import parse_unified_diff
 import prereview.prepare as prepare_module
 from prereview.prepare import (
     build_review_context,
     build_source_spec,
     recompute_runtime_from_context,
+)
+from prereview.review_io import (
+    default_review_notes_template,
+    notes_payload_to_jsonl_lines,
+    parse_review_notes_jsonl,
+    rewrite_review_notes_jsonl,
+    render_review_input,
 )
 from prereview.renderer import render_html
 from prereview.validate import evaluate_annotations, materialize_annotations_for_render
@@ -725,6 +732,209 @@ def test_cli_build_supports_legacy_annotations_input(tmp_path: Path) -> None:
         == 0
     )
     assert html_path.exists()
+
+
+def test_render_review_input_uses_markers_and_anchor_ids() -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    rendered = render_review_input(context, notes_file="review-notes.jsonl")
+
+    assert "PREREVIEW REVIEW INPUT v1" in rendered
+    assert "write_notes_to: review-notes.jsonl" in rendered
+    assert "CONTEXT START" in rendered
+    assert "FILE path=src/demo.py" in rendered
+    assert "ANCHOR id=" in rendered
+    assert "SNIPPET" in rendered
+    assert "CONTEXT END" in rendered
+
+
+def test_parse_review_notes_jsonl_rejects_invalid_records(tmp_path: Path) -> None:
+    context = _context_from_patch(SAMPLE_PATCH)
+    anchor_id = context["files"][0]["anchors"][0]["anchor_id"]
+    notes_path = tmp_path / "review-notes.jsonl"
+    notes_path.write_text(
+        "\n".join(
+            [
+                '{"type":"overview","text":"Scope: greeting refactor."}',
+                '{"type":"anchor_note","what_changed":"x","why_changed":"y"}',
+                '{"type":"anchor_note","anchor_id":"unknown","what_changed":"x","why_changed":"y"}',
+                f'{{"type":"anchor_note","anchor_id":"{anchor_id}","what_changed":"Use temp var","why_changed":"Improve readability"}}',
+                '{"type":"file_summary","path":"src/demo.py","summary":"Small focused update."}',
+                "this is not json",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    notes_payload, issues, rejected = parse_review_notes_jsonl(notes_path, context)
+
+    assert notes_payload["version"] == "1"
+    assert notes_payload["target_context_id"] == context["context_id"]
+    assert len(notes_payload["overview"]) == 1
+    assert len(notes_payload["anchors"]) == 1
+    assert notes_payload["anchors"][0]["anchor_id"] == anchor_id
+    assert len(notes_payload["file_summaries"]) == 1
+    assert notes_payload["file_summaries"][0]["path"] == "src/demo.py"
+    assert any(issue["code"] == "missing_anchor_id" for issue in issues)
+    assert any(issue["code"] == "unknown_anchor_id" for issue in issues)
+    assert any(issue["code"] == "invalid_jsonl" for issue in issues)
+    assert len(rejected) == 3
+
+
+def test_rewrite_review_notes_jsonl_writes_template_when_empty(tmp_path: Path) -> None:
+    path = tmp_path / "review-notes.jsonl"
+    rewrite_review_notes_jsonl(
+        path,
+        {
+            "version": "1",
+            "target_context_id": "ctx",
+            "overview": [],
+            "anchors": [],
+        },
+    )
+    assert path.read_text(encoding="utf-8") == default_review_notes_template()
+
+
+def test_notes_payload_to_jsonl_lines_roundtrip_fields() -> None:
+    payload = {
+        "version": "1",
+        "target_context_id": "ctx",
+        "overview": ["Scope: demo."],
+        "file_summaries": [{"path": "src/demo.py", "summary": "Focused update."}],
+        "anchors": [
+            {
+                "anchor_id": "abc",
+                "what_changed": "Updated flow.",
+                "why_changed": "Improve clarity.",
+                "title": "Flow update",
+                "reviewer_focus": "Error paths.",
+                "risk": "Low compatibility risk.",
+                "severity": "note",
+            }
+        ],
+    }
+
+    lines = notes_payload_to_jsonl_lines(payload)
+    assert lines[0] == '{"type":"overview","text":"Scope: demo."}'
+    assert lines[1] == (
+        '{"type":"file_summary","path":"src/demo.py","summary":"Focused update."}'
+    )
+    assert '"type":"anchor_note"' in lines[2]
+    assert '"anchor_id":"abc"' in lines[2]
+    assert '"severity":"note"' in lines[2]
+
+
+def test_cli_run_generates_workspace_and_html(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    artifacts_dir = tmp_path / "review"
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--patch-file",
+                str(patch_path),
+                "--artifacts-dir",
+                str(artifacts_dir),
+            ]
+        )
+        == 0
+    )
+
+    assert (artifacts_dir / ".gitignore").exists()
+    assert (artifacts_dir / ".gitignore").read_text(encoding="utf-8") == "*\n"
+    assert (artifacts_dir / "review-context.json").exists()
+    assert (artifacts_dir / "review-input.txt").exists()
+    assert (artifacts_dir / "review-notes.jsonl").exists()
+    assert (artifacts_dir / "annotations.json").exists()
+    assert (artifacts_dir / "review.html").exists()
+
+    notes_text = (artifacts_dir / "review-notes.jsonl").read_text(encoding="utf-8")
+    assert default_review_notes_template().strip() in notes_text
+
+    html = (artifacts_dir / "review.html").read_text(encoding="utf-8")
+    assert "src/demo.py" in html
+    assert "prereview-embedded-data" in html
+
+
+def test_cli_run_writes_rejected_notes_for_bad_jsonl(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    artifacts_dir = tmp_path / "review"
+    notes_path = artifacts_dir / "review-notes.jsonl"
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    context = _context_from_patch(SAMPLE_PATCH)
+    anchor_id = context["files"][0]["anchors"][0]["anchor_id"]
+
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    notes_path.write_text(
+        "\n".join(
+            [
+                '{"type":"anchor_note","what_changed":"missing id","why_changed":"missing id"}',
+                '{"type":"anchor_note","anchor_id":"unknown","what_changed":"x","why_changed":"y"}',
+                f'{{"type":"anchor_note","anchor_id":"{anchor_id}","what_changed":"Use temp var","why_changed":"Improve readability"}}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "--patch-file",
+                str(patch_path),
+                "--artifacts-dir",
+                str(artifacts_dir),
+            ]
+        )
+        == 0
+    )
+
+    rejected_path = artifacts_dir / "rejected-notes.jsonl"
+    assert rejected_path.exists()
+    rejected_text = rejected_path.read_text(encoding="utf-8")
+    assert "missing_anchor_id" in rejected_text
+    assert "unknown_anchor_id" in rejected_text
+
+    rewritten_notes_text = notes_path.read_text(encoding="utf-8")
+    assert "missing id" not in rewritten_notes_text
+    assert '"anchor_id":"unknown"' not in rewritten_notes_text
+    assert f'"anchor_id":"{anchor_id}"' in rewritten_notes_text
+
+    html = (artifacts_dir / "review.html").read_text(encoding="utf-8")
+    assert "missing_anchor_id" in html
+    assert "unknown_anchor_id" in html
+
+
+def test_cli_no_subcommand_defaults_to_run(tmp_path: Path) -> None:
+    patch_path = tmp_path / "change.patch"
+    artifacts_dir = tmp_path / "review"
+    patch_path.write_text(SAMPLE_PATCH, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--patch-file",
+                str(patch_path),
+                "--artifacts-dir",
+                str(artifacts_dir),
+            ]
+        )
+        == 0
+    )
+    assert (artifacts_dir / "review.html").exists()
+
+
+def test_cli_run_subcommand_is_removed() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["run"])
+    assert excinfo.value.code == 2
+
+
+def test_cli_default_excludes_untracked_in_run_mode() -> None:
+    args = build_parser().parse_args([])
+    assert args.include_untracked is False
 
 
 def test_recompute_runtime_excludes_nested_paths() -> None:

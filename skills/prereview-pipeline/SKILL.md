@@ -1,9 +1,9 @@
 ---
 name: prereview-pipeline
 description: >-
-  Use this skill when the user wants a reliable staged local preview workflow for code review
-  artifacts: prepare reviewer context, author reviewer-relevant annotation notes, and build
-  static HTML with validation.
+  Use this skill when the user wants a reliable local preview workflow for code review artifacts:
+  generate reviewer context, author reviewer-relevant notes, and build static HTML with
+  validation.
 ---
 
 # Prereview Pipeline
@@ -16,41 +16,45 @@ Use this workflow when the task is to generate local rich previews from agent-ge
 - "Generate prereview output from my local changes"
 - "Use staged workflow for code preview"
 
-## Required staged flow
+## Required flow
 
-1. Run `prereview prepare-context --out review-context.json`.
-2. Read `review-context.json` and author `annotation-notes.json`.
-3. Run `prereview build --context review-context.json --notes annotation-notes.json --output review.html`.
-4. If build reports validation issues, fix `annotation-notes.json` and re-run build.
+1. Run `prereview`.
+2. Read `review/review-input.txt`.
+3. Write notes to `review/review-notes.jsonl`.
+4. Run `prereview` again to parse notes, validate/sanitize, and rebuild `review/review.html`.
 
-Build includes validation and blocks HTML output until issues are resolved.
-There is no `draft-annotations` command; author notes directly from `review-context.json`.
-Build compiles canonical annotation payloads from notes + deterministic context anchor data.
-Default review target is `review.html` at repository root so the user can open it directly.
-Override the target only when the user explicitly asks for a different path (`--output PATH`).
-Build consumes `review-context.json` and `annotation-notes.json` by default (to minimize clutter) and embeds their data in `review.html`.
-Use `--keep-inputs` only when the user explicitly asks to retain intermediate JSON files.
+`prereview` performs end-to-end execution in one command:
+- recompute context from current diff;
+- write agent-facing `review/review-input.txt`;
+- parse `review/review-notes.jsonl`;
+- keep only valid note records in `review/review-notes.jsonl`;
+- move malformed/unmappable note lines into `review/rejected-notes.jsonl`;
+- build `review/review.html` with validation issues shown in the report.
+
+Canonical JSON artifacts are internal (`review/review-context.json`, `review/annotations.json`) and should not be manually edited.
 
 ## Input source selection
 
-Choose one source for stage 1:
+Choose one source:
 
 - Patch file: `--patch-file PATH`
 - Commit range: `--git-range A..B`
-- Default working tree vs `HEAD` if no source flags are given
+- Default current working tree diff vs `HEAD` when no source flags are given
 
-Use `--include-untracked` only when the user explicitly wants new untracked files included.
+By default, untracked files are excluded.
+Use `--include-untracked` when relevant untracked files should be included in review scope.
 Use `--exclude-path` to remove generated or irrelevant paths (for example `showcase/**`).
 Binary diffs are excluded by default; only use `--include-binary` when the binary change itself is review-critical.
 If context preparation fails due diff-size safeguards, narrow scope with `--exclude-path` before retrying.
 
 ## Annotation authoring guidance
 
-- Use annotation-notes schema version `1`.
-- Set `target_context_id` to the exact `context_id` from `review-context.json`.
-- Write reviewer-facing explanations in top-level `anchors[]` entries keyed by `anchor_id`.
-- Add optional `file_summaries[]` only when file-level context materially helps review.
-- Do not include file path or line coordinates in anchor entries; those are compiled from context.
+- Notes are authored as JSONL records in `review/review-notes.jsonl`:
+  - `{"type":"overview","text":"..."}`
+  - `{"type":"file_summary","path":"...","summary":"..."}`
+  - `{"type":"anchor_note","anchor_id":"...","what_changed":"...","why_changed":"...","title":"...","reviewer_focus":"...","risk":"...","severity":"note"}`
+- Use `anchor_id` exactly from `review/review-input.txt`.
+- Missing or unknown `anchor_id` records are rejected and written to `review/rejected-notes.jsonl`.
 - Keep annotations focused on non-computable reviewer value (intent, rationale, risk, compatibility impact).
 - Do not restate automatically available facts such as line numbers, hunk ids, diff stats, or file counts.
 - Add top-level `overview` with 2-4 concise lines for the header:
@@ -61,10 +65,10 @@ If context preparation fails due diff-size safeguards, narrow scope with `--excl
 - Prefer hunk-level anchor explanations as the default.
 - Keep high-severity notes rare (`warning`/`risk`) and reserve them for genuinely important reviewer attention points.
 
-Read `references/annotation-schema.md` for exact field rules and `assets/annotation-notes.template.json` for a ready template.
+Read `references/annotation-schema.md` for field semantics; for day-to-day work, rely on `review/review-input.txt` + JSONL records.
 
 ## Recovery rules
 
-- If `build` reports unknown anchors or other validation issues, update annotations and rerun build.
-- If context fingerprint mismatch is reported, regenerate context before validating/building.
-- If build fails, do not patch output HTML directly; fix inputs and rebuild.
+- If report shows rejected lines, fix `review/review-notes.jsonl` and rerun `prereview`.
+- If context-related warnings appear, rerun `prereview` to regenerate context/input from the latest diff.
+- Do not patch output HTML directly; update notes and rerun.
