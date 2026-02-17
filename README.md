@@ -2,6 +2,22 @@
 
 Generate local, static HTML review previews for agent-generated code changes.
 
+## Problem it solves
+
+AI agents can produce large diffs quickly, but raw patches are hard to review:
+
+- context is scattered across hunks and files
+- intent ("what changed" and "why") is often missing
+- review comments from iterative agent runs are not captured in one stable artifact
+
+`prereview` turns this into a repeatable local workflow:
+
+- build one deterministic review workspace from the current diff
+- let an agent attach structured notes to stable anchors
+- regenerate a single static HTML report for human review
+
+This reduces review friction and makes agent-driven change review auditable and consistent.
+
 Repository: `https://gitlab.kwant-project.org/anton-akhmerov/prereview.git`
 
 ## Quick workflow
