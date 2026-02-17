@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from prereview.annotations import iter_file_anchors, validate_annotation_schema
 from prereview.prepare import recompute_runtime_from_context
 
 
@@ -26,7 +25,6 @@ def evaluate_annotations(
     strict: bool,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     issues: list[dict[str, str]] = []
-    issues.extend(validate_annotation_schema(annotations))
 
     if not isinstance(context, dict):
         issues.append(
@@ -122,7 +120,10 @@ def evaluate_annotations(
                 continue
 
             file_anchor_index = anchor_index[path]
-            for anchor_idx, anchor in enumerate(iter_file_anchors(file_annotation)):
+            anchors = file_annotation["anchors"] if "anchors" in file_annotation else []
+            for anchor_idx, anchor in enumerate(anchors):
+                if not isinstance(anchor, dict):
+                    continue
                 anchor_id = anchor.get("anchor_id")
                 if not isinstance(anchor_id, str):
                     continue
@@ -197,10 +198,8 @@ def materialize_annotations_for_render(
         }
 
         per_file_anchor_index = anchor_index[path]
-        for anchor in iter_file_anchors(file_annotation):
+        for anchor in file_annotation["anchors"]:
             anchor_id = anchor["anchor_id"]
-            if not isinstance(anchor_id, str):
-                continue
             if anchor_id not in per_file_anchor_index:
                 continue
             resolved = per_file_anchor_index[anchor_id]

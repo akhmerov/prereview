@@ -808,8 +808,8 @@ def test_cli_run_writes_rejected_notes_for_bad_jsonl(tmp_path: Path) -> None:
     assert f'"anchor_id":"{anchor_id}"' in rewritten_notes_text
 
     html = (artifacts_dir / "review.html").read_text(encoding="utf-8")
-    assert "missing_anchor_id" in html
-    assert "unknown_anchor_id" in html
+    assert "missing_anchor_id" not in html
+    assert "unknown_anchor_id" not in html
 
 
 def test_cli_no_subcommand_defaults_to_run(tmp_path: Path) -> None:

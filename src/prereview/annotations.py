@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 _ALLOWED_SEVERITIES = {"info", "note", "warning", "risk"}
 
@@ -106,93 +106,6 @@ def _validate_anchor_fields(
                 f"{location}.severity",
             )
         )
-
-
-def validate_annotation_schema(annotations: Any) -> list[dict[str, str]]:
-    issues: list[dict[str, str]] = []
-
-    if not isinstance(annotations, dict):
-        return [_error("root_type", "Annotations must be a JSON object.", "$")]
-
-    if annotations.get("version") != "2":
-        issues.append(
-            _error("bad_version", "version must be the string '2'.", "$.version")
-        )
-
-    target = annotations.get("target_context_id")
-    if not isinstance(target, str) or not target:
-        issues.append(
-            _error(
-                "missing_target",
-                "target_context_id must be a non-empty string.",
-                "$.target_context_id",
-            )
-        )
-
-    _validate_overview_field(
-        annotations.get("overview"), issues=issues, location="$.overview"
-    )
-
-    files = annotations.get("files")
-    if not isinstance(files, list):
-        issues.append(_error("files_type", "files must be a list.", "$.files"))
-        return issues
-
-    for file_idx, file_entry in enumerate(files):
-        location = f"$.files[{file_idx}]"
-        if not isinstance(file_entry, dict):
-            issues.append(
-                _error("file_type", "Each files entry must be an object.", location)
-            )
-            continue
-
-        path = file_entry.get("path")
-        if not isinstance(path, str) or not path:
-            issues.append(
-                _error(
-                    "file_path",
-                    "files.path must be a non-empty string.",
-                    f"{location}.path",
-                )
-            )
-
-        if "summary" in file_entry and not isinstance(file_entry["summary"], str):
-            issues.append(
-                _error(
-                    "summary_type", "summary must be a string.", f"{location}.summary"
-                )
-            )
-
-        anchors = file_entry.get("anchors")
-        if not isinstance(anchors, list):
-            issues.append(
-                _error(
-                    "anchors_type",
-                    "files.anchors must be a list.",
-                    f"{location}.anchors",
-                )
-            )
-            continue
-
-        for anchor_idx, anchor in enumerate(anchors):
-            anchor_loc = f"{location}.anchors[{anchor_idx}]"
-            if not isinstance(anchor, dict):
-                issues.append(
-                    _error("anchor_type", "Anchor must be an object.", anchor_loc)
-                )
-                continue
-
-            _validate_anchor_fields(anchor, location=anchor_loc, issues=issues)
-
-    return issues
-
-
-def iter_file_anchors(file_annotation: dict[str, Any]) -> Iterable[dict[str, Any]]:
-    anchors = file_annotation.get("anchors", [])
-    if isinstance(anchors, list):
-        for anchor in anchors:
-            if isinstance(anchor, dict):
-                yield anchor
 
 
 def validate_annotation_notes_schema(notes: Any) -> list[dict[str, str]]:

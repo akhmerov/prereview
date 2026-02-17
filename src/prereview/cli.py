@@ -310,15 +310,15 @@ def _run_cmd(args: argparse.Namespace) -> int:
         ),
     )
 
-    extra_issues: list[dict[str, str]] = []
-    for raw_issue in [*notes_issues, *compile_issues]:
-        normalized = _normalize_issue(raw_issue)
-        if normalized is None:
-            continue
-        # Rejected/sanitized notes should be reported but should not block rendering.
-        if normalized["level"] == "error":
-            normalized["level"] = "warning"
-        extra_issues.append(normalized)
+    notes_diagnostics = [
+        normalized
+        for raw_issue in [*notes_issues, *compile_issues]
+        if (normalized := _normalize_issue(raw_issue)) is not None
+    ]
+    notes_error_count = sum(issue["level"] == "error" for issue in notes_diagnostics)
+    notes_warning_count = sum(
+        issue["level"] == "warning" for issue in notes_diagnostics
+    )
 
     runtime_issues = report["issues"]
     normalized_runtime_issues = [
@@ -327,10 +327,11 @@ def _run_cmd(args: argparse.Namespace) -> int:
         if (normalized := _normalize_issue(raw_issue)) is not None
     ]
 
-    combined_issues = [*extra_issues, *normalized_runtime_issues]
     report = {
-        "valid": not any(issue["level"] == "error" for issue in combined_issues),
-        "issues": combined_issues,
+        "valid": not any(
+            issue["level"] == "error" for issue in normalized_runtime_issues
+        ),
+        "issues": normalized_runtime_issues,
         "stats": report["stats"],
     }
 
@@ -346,12 +347,13 @@ def _run_cmd(args: argparse.Namespace) -> int:
         max_expanded_lines=_DEFAULT_MAX_EXPANDED_LINES,
         collapse_large_hunks=True,
         allow_split_hunks=True,
+        notes_error_count=notes_error_count,
+        notes_warning_count=notes_warning_count,
         embedded_data={
             "context": context,
             "annotation_notes": notes_payload,
             "annotations": annotations,
             "validation_report": report,
-            "rejected_notes": rejected_records,
         },
     )
     write_text(html_path, html)
@@ -376,6 +378,10 @@ def _run_cmd(args: argparse.Namespace) -> int:
     print(f"Uncommented files: {uncommented_files}")
     print(f"Parsed notes file: {notes_path}")
     print(f"Rejected notes: {len(rejected_records)} -> {rejected_path}")
+    if notes_diagnostics:
+        print(
+            f"Notes diagnostics (not included in HTML report): {len(notes_diagnostics)}"
+        )
     print(f"Built static preview at {html_path}")
     return 0
 

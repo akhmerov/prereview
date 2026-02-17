@@ -117,6 +117,8 @@ def render_html(
     max_expanded_lines: int,
     collapse_large_hunks: bool,
     allow_split_hunks: bool,
+    notes_error_count: int = 0,
+    notes_warning_count: int = 0,
     embedded_data: dict[str, Any] | None = None,
 ) -> str:
     prepared_stats = prepared["stats"]
@@ -128,8 +130,8 @@ def render_html(
         file_annotations[file_annotation["path"]] = file_annotation
 
     issues = validation_report["issues"]
-    error_count = sum(1 for issue in issues if issue["level"] == "error")
-    warning_count = sum(1 for issue in issues if issue["level"] == "warning")
+    error_count = sum(issue["level"] == "error" for issue in issues)
+    warning_count = sum(issue["level"] == "warning" for issue in issues)
 
     overview_lines = [line for line in overview if line.strip()][:8]
 
@@ -182,8 +184,8 @@ def render_html(
                 collapse_large_hunks and len(lines_list) > max_expanded_lines
             )
 
-            added_lines = sum(1 for line in lines_list if line["type"] == "add")
-            removed_lines = sum(1 for line in lines_list if line["type"] == "del")
+            added_lines = sum(line["type"] == "add" for line in lines_list)
+            removed_lines = sum(line["type"] == "del" for line in lines_list)
 
             new_range = _hunk_range(hunk["new_start"], hunk["new_count"], "+")
             old_range = _hunk_range(hunk["old_start"], hunk["old_count"], "-")
@@ -288,6 +290,8 @@ def render_html(
         files_changed=prepared_stats["files_changed"],
         additions=prepared_stats["additions"],
         deletions=prepared_stats["deletions"],
+        notes_error_count=notes_error_count,
+        notes_warning_count=notes_warning_count,
         error_count=error_count,
         warning_count=warning_count,
         overview_lines=overview_lines,
