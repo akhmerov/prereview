@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-_ALLOWED_SEVERITIES = {"info", "note", "warning", "risk"}
+from prereview.models import Severity
 
 
 def _error(code: str, message: str, location: str) -> dict[str, str]:
@@ -15,6 +15,13 @@ def _warning(code: str, message: str, location: str) -> dict[str, str]:
 
 def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and value.strip() != ""
+
+
+def _coerce_severity(value: object) -> Severity | None:
+    try:
+        return Severity(value.strip())
+    except (AttributeError, ValueError):
+        return None
 
 
 def _validate_overview_field(
@@ -96,9 +103,8 @@ def _validate_anchor_fields(
     if "risk" in anchor and not isinstance(anchor.get("risk"), str):
         issues.append(_error("risk_type", "risk must be a string.", f"{location}.risk"))
 
-    if (
-        severity := anchor.get("severity")
-    ) is not None and severity not in _ALLOWED_SEVERITIES:
+    severity = _coerce_severity(anchor.get("severity", Severity.NOTE.value))
+    if severity is None:
         issues.append(
             _error(
                 "bad_severity",
@@ -247,6 +253,7 @@ def compile_annotations_from_notes(
     anchors_by_file: dict[str, list[dict[str, Any]]] = {}
     for anchor_idx, anchor_note in enumerate(notes["anchors"]):
         anchor_id = anchor_note["anchor_id"]
+        severity = _coerce_severity(anchor_note.get("severity", Severity.NOTE.value))
 
         path = anchor_to_path.get(anchor_id)
         if path is None:
@@ -258,11 +265,14 @@ def compile_annotations_from_notes(
                 )
             )
             continue
+        if severity is None:
+            continue
 
         compiled_anchor: dict[str, Any] = {
             "anchor_id": anchor_id,
             "what_changed": anchor_note["what_changed"].strip(),
             "why_changed": anchor_note["why_changed"].strip(),
+            "severity": severity.value,
         }
 
         title = anchor_note["title"] if "title" in anchor_note else None
@@ -280,10 +290,6 @@ def compile_annotations_from_notes(
         risk = anchor_note["risk"] if "risk" in anchor_note else None
         if _is_non_empty_string(risk):
             compiled_anchor["risk"] = risk.strip()
-
-        severity = anchor_note["severity"] if "severity" in anchor_note else None
-        if _is_non_empty_string(severity):
-            compiled_anchor["severity"] = severity.strip()
 
         anchors_by_file.setdefault(path, []).append(compiled_anchor)
 

@@ -82,6 +82,7 @@ def _annotations_from_context(context: dict[str, object]) -> dict[str, object]:
                     "title": "Change focus",
                     "what_changed": "Behavior was adjusted in this change focus.",
                     "why_changed": "To improve correctness and maintainability.",
+                    "severity": "note",
                 }
             )
 
@@ -131,6 +132,7 @@ def _notes_from_context(context: dict[str, object]) -> dict[str, object]:
                     "what_changed": "Behavior was adjusted in this change focus.",
                     "why_changed": "To improve correctness and maintainability.",
                     "title": "Change focus",
+                    "severity": "note",
                 }
             )
 
@@ -212,6 +214,7 @@ def test_compile_notes_to_annotations_maps_anchors() -> None:
     )
     assert "what_changed" in compiled_anchor
     assert "why_changed" in compiled_anchor
+    assert compiled_anchor["severity"] == "note"
 
 
 def test_validate_and_materialize_annotations() -> None:

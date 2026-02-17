@@ -210,7 +210,7 @@ def materialize_annotations_for_render(
                 anchor["reviewer_focus"].strip() if "reviewer_focus" in anchor else ""
             )
             risk = anchor["risk"].strip() if "risk" in anchor else ""
-            severity = anchor["severity"] if "severity" in anchor else "note"
+            severity = anchor["severity"]
 
             note_fields = {
                 "what_changed": _ensure_terminal_punctuation(what_changed),

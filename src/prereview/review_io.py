@@ -7,9 +7,9 @@ from typing import Any
 
 from jinja2 import Environment
 
+from prereview.models import Severity
 from prereview.util import write_text
 
-_ALLOWED_SEVERITIES = {"info", "note", "warning", "risk"}
 _TEMPLATE_ENV = Environment(
     autoescape=False,
     trim_blocks=True,
@@ -308,6 +308,7 @@ def parse_review_notes_jsonl(
                     "anchor_id": anchor_id,
                     "what_changed": what_changed.strip(),
                     "why_changed": why_changed.strip(),
+                    "severity": Severity.NOTE.value,
                 }
 
                 title = record.get("title")
@@ -322,21 +323,19 @@ def parse_review_notes_jsonl(
                 if isinstance(risk, str) and risk.strip():
                     note_record["risk"] = risk.strip()
 
-                severity = record.get("severity")
-                if isinstance(severity, str) and severity.strip():
-                    normalized_severity = severity.strip().lower()
-                    if normalized_severity in _ALLOWED_SEVERITIES:
-                        note_record["severity"] = normalized_severity
-                    else:
-                        reject_record(
-                            line_no=line_no,
-                            location=location,
-                            code="bad_severity",
-                            warning_detail=f"bad severity {severity!r}.",
-                            message=f"bad severity {severity!r}",
-                            record=record,
-                        )
-                        continue
+                severity = record.get("severity", Severity.NOTE.value)
+                try:
+                    note_record["severity"] = Severity(severity.strip().lower()).value
+                except (AttributeError, ValueError):
+                    reject_record(
+                        line_no=line_no,
+                        location=location,
+                        code="bad_severity",
+                        warning_detail=f"bad severity {severity!r}.",
+                        message=f"bad severity {severity!r}",
+                        record=record,
+                    )
+                    continue
 
                 if anchor_id in anchors_by_id:
                     issues.append(

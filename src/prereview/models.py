@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from typing import Literal
 
 LineType = Literal["context", "add", "del"]
+
+
+class Severity(StrEnum):
+    INFO = "info"
+    NOTE = "note"
+    WARNING = "warning"
+    RISK = "risk"
 
 
 @dataclass(slots=True)
