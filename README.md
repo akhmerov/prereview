@@ -22,17 +22,20 @@ Repository: `https://gitlab.kwant-project.org/anton-akhmerov/prereview.git`
 
 ## Quick workflow
 
+Whenever you want to review code:
+
+1. Generate (or regenerate) the review workspace:
+
 ```bash
 prereview
 ```
 
-This creates a `prereview/` workspace with:
+- Run it yourself, or ask your agent to do it via `$prereview-pipeline`.
+- This generates or refreshes your local review artifacts.
 
-- `prereview/review.html` (open this report in the browser)
-- `prereview/review-input.txt` (agent-facing context)
-- `prereview/review-notes.jsonl` (agent-authored notes)
+2. Open `prereview/review.html` and add reviewer comments with the built-in comment UI.
 
-After updating `prereview/review-notes.jsonl`, run `prereview` again to rebuild the report.
+3. Copy the generated comments/prompt from the report and send them back to your coding agent (or any external review channel).
 
 To remove artifacts and unregister local git excludes:
 
