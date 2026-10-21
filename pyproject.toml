@@ -23,6 +23,7 @@ platforms = ["linux-64"]
 preview = ["pixi-build"]
 
 [tool.pixi.dependencies]
+ca-certificates = ">=2026.10.19"
 python = ">=3.11,<3.14"
 
 [tool.pixi.feature.precommit.dependencies]
